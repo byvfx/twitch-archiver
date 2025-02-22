@@ -59,6 +59,7 @@ python twitch_local_archiver.py
 - The application preserves original video titles and dates
 
 ## TODO
-- [ ] Add support for downloading clips
+
+- [ ] Add support for downloading clips, highlights, collections
 - [ ] Add support for capturing chat logs
 - [ ] Cancel individual downloads
