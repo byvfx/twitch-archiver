@@ -41,3 +41,4 @@ LABELS = {
     "READY": "Ready",
     "CANCEL": "Cancel Downloads",
 }
+

@@ -8,12 +8,14 @@ import os
 import yt_dlp
 import customtkinter as ctk
 from twitch_ui import TwitchUI
+from ytdlp_config import FETCH_OPTS, DOWNLOAD_OPTS
 
 class TwitchVODArchiver:
     def __init__(self):
         self.ui = TwitchUI()
         self.is_cancelled = False
         self._setup_callbacks()
+        self.current_ydl = None
 
     def _setup_callbacks(self):
         """Set up button callbacks"""
@@ -48,15 +50,8 @@ class TwitchVODArchiver:
     def _fetch_vods_thread(self, channel_name: str):
         """Background thread for fetching VODs"""
         try:
-            url = f"https://www.twitch.tv/{channel_name}/videos?filter=archives"
-            ydl_opts = {
-                'quiet': False,
-                'extract_flat': True,
-                'force_generic_extractor': True,
-                'verbose': True,
-                'progress_bar': True,
-            }
-
+            url = f"https://www.twitch.tv/{channel_name}/videos?filter=all"
+            ydl_opts = FETCH_OPTS.copy()
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 result = ydl.extract_info(url, download=False)
                 entries = result.get('entries', [])
@@ -84,15 +79,11 @@ class TwitchVODArchiver:
 
     def cancel_downloads(self):
         """Cancel ongoing downloads"""
-        self.is_cancelled = True
-        self.ui.download_queue.clear()
-        self.ui.update_status("Cancelling downloads...")
-        self.ui.cancel_button.configure(state="disabled")
+        # TODO: Implement download cancellation in a future version
+        pass
 
     def download_selected(self):
         """Start downloading selected VODs"""
-        self.is_cancelled = False
-        self.ui.cancel_button.configure(state="normal")
         selected_vods = self.ui.get_selected_vods()
         if not selected_vods:
             self.ui.update_status("No VODs selected")
@@ -113,13 +104,9 @@ class TwitchVODArchiver:
 
     def _process_download_queue(self):
         """Process the download queue"""
-        if self.is_cancelled or not self.ui.download_queue:
+        if not self.ui.download_queue:
             self.ui.currently_downloading = False
-            self.ui.cancel_button.configure(state="disabled")
-            if self.is_cancelled:
-                self.ui.update_status("Downloads cancelled")
-            else:
-                self.ui.update_status("All downloads completed")
+            self.ui.update_status("All downloads completed")
             return
 
         self.ui.currently_downloading = True
@@ -131,23 +118,17 @@ class TwitchVODArchiver:
 
     def _download_vod_thread(self, checkbox, url):
         """Background thread for downloading a VOD"""
+        self.ui.after(0, lambda: self.ui.update_status(f"Downloading: {checkbox.cget('text')}"))
+        
+        ydl_opts = DOWNLOAD_OPTS.copy()
+        ydl_opts['outtmpl'] = os.path.join(self.ui.get_download_path(), '%(title)s.%(ext)s')
+        
         try:
-            if self.is_cancelled:
-                return
-                
-            self.ui.after(0, lambda: self.ui.update_status(f"Downloading: {checkbox.cget('text')}"))
-            
-            ydl_opts = {
-                'outtmpl': os.path.join(self.ui.get_download_path(), '%(title)s-%(id)s.%(ext)s'),
-                'format': 'best',
-            }
-            
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                if not self.is_cancelled:
-                    ydl.download([url])
-                    self.ui.after(0, lambda: checkbox.configure(state="disabled"))
+                ydl.download([url])
+                self.ui.after(0, lambda: checkbox.configure(state="disabled"))
         except Exception as e:
-            self.ui.after(0, lambda: self.ui.update_status(f"Error downloading VOD: {str(e)}"))
+            self.ui.after(0, lambda: self.ui.update_status(f"Error downloading: {str(e)}"))
         finally:
             self.ui.after(0, self._process_download_queue)
 

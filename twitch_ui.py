@@ -115,8 +115,7 @@ class TwitchUI(ctk.CTk):
             self.status_frame,
             text=LABELS["CANCEL"],
             fg_color="darkred",
-            hover_color="#8B0000",
-            state="disabled"
+            hover_color="#8B0000"
         )
         self.cancel_button.pack(side="right", **PADDING["WIDGET"])
         
