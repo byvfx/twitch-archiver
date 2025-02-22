@@ -3,9 +3,8 @@ UI Implementation for Twitch VOD Archiver
 """
 
 import customtkinter as ctk
-from datetime import datetime
-import os
 from ui_config import COLORS, PADDING, DIMENSIONS, LABELS, WINDOW_SIZE, WINDOW_TITLE
+import os
 
 class TwitchUI(ctk.CTk):
     def __init__(self):
@@ -84,6 +83,15 @@ class TwitchUI(ctk.CTk):
         )
         self.browse_button.pack(side="left", **PADDING["WIDGET"])
 
+        self.explore_button = ctk.CTkButton(
+            self.path_frame,
+            text="Explore",
+            fg_color=COLORS["BUTTON"],
+            hover_color=COLORS["BUTTON_HOVER"],
+            command=lambda: os.startfile(self.path_entry.get())
+        )
+        self.explore_button.pack(side="left", **PADDING["WIDGET"])
+
     def _create_vod_frame(self):
         """Create the VOD list frame"""
         self.vod_frame = ctk.CTkFrame(self, fg_color=COLORS["FRAME"])
@@ -102,6 +110,15 @@ class TwitchUI(ctk.CTk):
         
         self.status_label = ctk.CTkLabel(self.status_frame, text=LABELS["READY"])
         self.status_label.pack(side="left", **PADDING["WIDGET"])
+        
+        self.cancel_button = ctk.CTkButton(
+            self.status_frame,
+            text=LABELS["CANCEL"],
+            fg_color="darkred",
+            hover_color="#8B0000",
+            state="disabled"
+        )
+        self.cancel_button.pack(side="right", **PADDING["WIDGET"])
         
         self.download_button = ctk.CTkButton(
             self.status_frame,

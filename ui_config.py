@@ -39,4 +39,5 @@ LABELS = {
     "DOWNLOAD": "Download Selected",
     "SELECT_ALL": "Select All",
     "READY": "Ready",
+    "CANCEL": "Cancel Downloads",
 }
