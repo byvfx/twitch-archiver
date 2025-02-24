@@ -111,13 +111,13 @@ class TwitchUI(ctk.CTk):
         self.status_label = ctk.CTkLabel(self.status_frame, text=LABELS["READY"])
         self.status_label.pack(side="left", **PADDING["WIDGET"])
         
-        self.cancel_button = ctk.CTkButton(
+        self.pause_button = ctk.CTkButton(
             self.status_frame,
-            text=LABELS["CANCEL"],
+            text=LABELS["PAUSE"],
             fg_color="darkred",
             hover_color="#8B0000"
         )
-        self.cancel_button.pack(side="right", **PADDING["WIDGET"])
+        self.pause_button.pack(side="right", **PADDING["WIDGET"])
         
         self.download_button = ctk.CTkButton(
             self.status_frame,

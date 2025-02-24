@@ -4,7 +4,7 @@ Contains all UI-related constants and theme settings
 """
 
 # Window settings
-WINDOW_SIZE = "800x600"
+WINDOW_SIZE = "800x500"
 WINDOW_TITLE = "Twitch VOD Archiver"
 
 # Twitch theme colors
@@ -39,6 +39,7 @@ LABELS = {
     "DOWNLOAD": "Download Selected",
     "SELECT_ALL": "Select All",
     "READY": "Ready",
-    "CANCEL": "Cancel Downloads",
+    "PAUSE": "Pause Downloads", # currently this pauses the download
+    "EXPLORE": "Explore",
 }
 

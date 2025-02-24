@@ -26,7 +26,7 @@ class TwitchVODArchiver:
         self.ui.browse_button.configure(command=self.browse_path)
         self.ui.download_button.configure(command=self.download_selected)
         self.ui.select_all_button.configure(command=self.select_all_vods)
-        self.ui.cancel_button.configure(command=self.cancel_downloads)
+        self.ui.pause_button.configure(command=self.cancel_downloads)
 
     def browse_path(self):
         """Open directory browser"""
@@ -53,6 +53,13 @@ class TwitchVODArchiver:
     def _fetch_vods_thread(self, channel_name: str):
         """Background thread for fetching VODs"""
         try:
+            # video filters:
+            # videos?filter=all&sort=time
+            # videos?filter=highlights
+            # clips?filter=clips&range=24hr,7d,30d,all
+            # videos?filter=uploads&sort=time
+            # videos?filter=collections
+            
             url = f"https://www.twitch.tv/{channel_name}/videos?filter=all"
             ydl_opts = FETCH_OPTS.copy()
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -84,9 +91,9 @@ class TwitchVODArchiver:
         """Cancel ongoing downloads"""
         if self.ui.currently_downloading:
             self.is_cancelled = True
-            self.ui.update_status("Cancelling downloads...")
+            self.ui.update_status("Pausing downloads...")
             self.ui.download_button.configure(state="disabled")
-            self.ui.cancel_button.configure(state="disabled")
+            self.ui.pause_button.configure(state="disabled")
             # Clear remaining queue
             self.ui.download_queue.clear()
             
@@ -163,7 +170,7 @@ class TwitchVODArchiver:
         self.is_cancelled = False
         self.ui.currently_downloading = False
         self.ui.download_button.configure(state="normal")
-        self.ui.cancel_button.configure(state="normal")
+        self.ui.pause_button.configure(state="normal")
         
         if self.ui.download_queue:
             self._process_download_queue()

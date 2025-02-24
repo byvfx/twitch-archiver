@@ -24,10 +24,17 @@ A desktop application for downloading Twitch VODs (Video on Demand) with a user-
 ## Installation
 
 1. Clone the repository
-2. Install dependencies:
-```bash
-pip install customtkinter yt-dlp
-```
+2. Install dependencies using one of these methods:
+
+   Using pip directly:
+   ```bash
+   pip install customtkinter yt-dlp
+   ```
+
+   Using requirements.txt:
+   ```bash
+   pip install -r requirements.txt
+   ```
 
 ## Usage
 
@@ -49,7 +56,7 @@ python twitch_local_archiver.py
 - **Explore**: Opens the current download folder
 - **Select All**: Selects all VODs in the list
 - **Download Selected**: Starts downloading selected VODs
-- **Cancel Downloads**: Stops current and queued downloads
+- **Pause Download**: Pauses current and queued downloads
 
 ## Notes
 
@@ -62,4 +69,5 @@ python twitch_local_archiver.py
 
 - [ ] Add support for downloading clips, highlights, collections
 - [ ] Add support for capturing chat logs
-- [ ] Cancel individual downloads
+- [ ] Cancel individual downloads turns out yt-dlp doesn't support a native call to cancel a download
+- [ ] Add download progress bar
