@@ -4,7 +4,7 @@ Contains all UI-related constants and theme settings
 """
 
 # Window settings
-WINDOW_SIZE = "800x500"
+WINDOW_SIZE = "842x500"
 WINDOW_TITLE = "Twitch VOD Archiver"
 
 # Twitch theme colors
