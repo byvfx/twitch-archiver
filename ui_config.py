@@ -51,6 +51,7 @@ VIDEO_FILTERS = {
     "Highlights": "videos?filter=highlights",
     "Uploads": "videos?filter=uploads&sort=time",
     "Collections": "videos?filter=collections",
+    "Clips": "clips",
 }
 
 CLIP_RANGES = {
