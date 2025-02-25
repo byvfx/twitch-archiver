@@ -53,14 +53,9 @@ class TwitchVODArchiver:
     def _fetch_vods_thread(self, channel_name: str):
         """Background thread for fetching VODs"""
         try:
-            # video filters:
-            # videos?filter=all&sort=time
-            # videos?filter=highlights
-            # clips?filter=clips&range=24hr,7d,30d,all
-            # videos?filter=uploads&sort=time
-            # videos?filter=collections
+            filter_url = self.ui.get_selected_filter()
+            url = f"https://www.twitch.tv/{channel_name}/{filter_url}"
             
-            url = f"https://www.twitch.tv/{channel_name}/videos?filter=all"
             ydl_opts = FETCH_OPTS.copy()
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 result = ydl.extract_info(url, download=False)

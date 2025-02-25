@@ -3,7 +3,7 @@ UI Implementation for Twitch VOD Archiver
 """
 
 import customtkinter as ctk
-from ui_config import COLORS, PADDING, DIMENSIONS, LABELS, WINDOW_SIZE, WINDOW_TITLE
+from ui_config import COLORS, PADDING, DIMENSIONS, LABELS, WINDOW_SIZE, WINDOW_TITLE, VIDEO_FILTERS, CLIP_RANGES
 import os
 
 class TwitchUI(ctk.CTk):
@@ -13,14 +13,22 @@ class TwitchUI(ctk.CTk):
         # Configure window
         self.title(WINDOW_TITLE)
         self.geometry(WINDOW_SIZE)
-        self._setup_theme()
-        self._setup_grid()
-        self._create_widgets()
         
-        # Initialize variables
+        # Initialize variables first
         self.vod_checkboxes = []
         self.download_queue = []
         self.currently_downloading = False
+        self.filter_var = ctk.StringVar()
+        self.clip_range_var = ctk.StringVar()
+        
+        # Set default values
+        self.filter_var.set("All Videos")
+        self.clip_range_var.set("All Time")
+        
+        # Setup UI
+        self._setup_theme()
+        self._setup_grid()
+        self._create_widgets()
 
     def _setup_theme(self):
         """Configure the application theme"""
@@ -45,13 +53,44 @@ class TwitchUI(ctk.CTk):
         self.channel_frame = ctk.CTkFrame(self, fg_color=COLORS["FRAME"])
         self.channel_frame.grid(row=0, column=0, **PADDING["FRAME"], sticky="ew")
         
-        ctk.CTkLabel(self.channel_frame, text=LABELS["CHANNEL"]).pack(side="left", **PADDING["WIDGET"])
+        # Channel input
+        channel_input = ctk.CTkFrame(self.channel_frame, fg_color="transparent")
+        channel_input.pack(side="left", **PADDING["WIDGET"], fill="x", expand=True)
         
-        self.channel_entry = ctk.CTkEntry(
-            self.channel_frame,
-            width=DIMENSIONS["CHANNEL_ENTRY_WIDTH"]
-        )
+        ctk.CTkLabel(channel_input, text=LABELS["CHANNEL"]).pack(side="left", **PADDING["WIDGET"])
+        self.channel_entry = ctk.CTkEntry(channel_input, width=DIMENSIONS["CHANNEL_ENTRY_WIDTH"])
         self.channel_entry.pack(side="left", **PADDING["WIDGET"])
+        
+        # Filter options
+        filter_frame = ctk.CTkFrame(self.channel_frame, fg_color="transparent")
+        filter_frame.pack(side="left", **PADDING["WIDGET"])
+        
+        ctk.CTkLabel(filter_frame, text=LABELS["FILTER_TYPE"]).pack(side="left", **PADDING["WIDGET"])
+        self.filter_dropdown = ctk.CTkOptionMenu(
+            filter_frame,
+            values=list(VIDEO_FILTERS.keys()),
+            variable=self.filter_var,
+            fg_color=COLORS["BUTTON"],
+            button_color=COLORS["BUTTON"],
+            button_hover_color=COLORS["BUTTON_HOVER"]
+        )
+        self.filter_dropdown.pack(side="left", **PADDING["WIDGET"])
+        
+        self.clip_range_dropdown = ctk.CTkOptionMenu(
+            filter_frame,
+            values=list(CLIP_RANGES.keys()),
+            variable=self.clip_range_var,
+            fg_color=COLORS["BUTTON"],
+            button_color=COLORS["BUTTON"],
+            button_hover_color=COLORS["BUTTON_HOVER"]
+        )
+        self.clip_range_dropdown.pack(side="left", **PADDING["WIDGET"])
+        
+        # Initially hide clip range dropdown
+        self.clip_range_dropdown.pack_forget()
+        
+        # Bind filter change event
+        self.filter_var.trace_add("write", self._on_filter_change)
         
         self.fetch_button = ctk.CTkButton(
             self.channel_frame,
@@ -164,3 +203,18 @@ class TwitchUI(ctk.CTk):
     def get_selected_vods(self):
         """Get list of selected VODs"""
         return [(cb, url) for cb, url in self.vod_checkboxes if cb.get()]
+
+    def _on_filter_change(self, *args):
+        """Show/hide clip range dropdown based on filter selection"""
+        if self.filter_var.get() == "Clips":
+            self.clip_range_dropdown.pack(side="left", **PADDING["WIDGET"])
+        else:
+            self.clip_range_dropdown.pack_forget()
+
+    def get_selected_filter(self):
+        """Get the currently selected filter URL"""
+        filter_type = self.filter_var.get()
+        if (filter_type == "Clips"):
+            range_value = CLIP_RANGES[self.clip_range_var.get()]
+            return f"clips?filter=clips&range={range_value}"
+        return VIDEO_FILTERS[filter_type]

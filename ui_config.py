@@ -41,5 +41,22 @@ LABELS = {
     "READY": "Ready",
     "PAUSE": "Pause Downloads", # currently this pauses the download
     "EXPLORE": "Explore",
+    "FILTER_TYPE": "Filter Type:",
+    "CLIP_RANGE": "Clip Range:",
+}
+
+# Video filter options
+VIDEO_FILTERS = {
+    "All Videos": "videos?filter=all&sort=time",
+    "Highlights": "videos?filter=highlights",
+    "Uploads": "videos?filter=uploads&sort=time",
+    "Collections": "videos?filter=collections",
+}
+
+CLIP_RANGES = {
+    "Last 24 Hours": "24hr",
+    "Last 7 Days": "7d",
+    "Last 30 Days": "30d",
+    "All Time": "all"
 }
 
