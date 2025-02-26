@@ -1,7 +1,9 @@
 # Twitch VOD Archiver
 
 A desktop application for downloading Twitch VODs (Video on Demand) with a user-friendly interface.
+
 ## Screenshots
+
 ![UI Screenshot](/img/ui_ss.png)
 
 ## Features
@@ -38,6 +40,7 @@ A desktop application for downloading Twitch VODs (Video on Demand) with a user-
 
 ## Usage
 
+
 1. Run the application:
 ```bash
 python twitch_local_archiver.py
@@ -52,6 +55,12 @@ python twitch_local_archiver.py
 ## Controls
 
 - **Fetch VODs**: Retrieves the list of available VODs for the specified channel
+- **Filter Type**: Choose between different content types:
+  - All Videos: Shows all recorded streams and uploads
+  - Highlights: Shows only highlighted stream segments
+  - Uploads: Shows only manually uploaded videos
+  - Collections: Shows video collections/playlists
+  - Clips: Shows channel clips (with time range options)
 - **Browse**: Select download location
 - **Explore**: Opens the current download folder
 - **Select All**: Selects all VODs in the list
@@ -61,13 +70,19 @@ python twitch_local_archiver.py
 ## Notes
 
 - Downloads are processed sequentially to avoid overwhelming the network
-- VODs are saved in their best available quality will
+- Different filter types access different kinds of content:
+  - All Videos typically contains past broadcasts (stored for 14-60 days depending on user level)
+  - Highlights are permanently stored stream segments marked by the streamer
+  - Uploads are non-stream videos uploaded directly to the channel
+  - Collections are curated playlists of videos
+  - Clips can be filtered by time range (24h, 7d, 30d, or all time)
+- VODs are saved in their best available quality
 - Downloaded VODs are marked as disabled in the UI
 - The application preserves original video titles and dates
 
 ## TODO
 
-- [ ] Add support for downloading clips, highlights, collections
+- [x] Add support for downloading clips, highlights, collections
 - [ ] Add support for capturing chat logs
 - [ ] Cancel individual downloads turns out yt-dlp doesn't support a native call to cancel a download
 - [ ] Add download progress bar
