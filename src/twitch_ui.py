@@ -147,8 +147,18 @@ class TwitchUI(ctk.CTk):
         self.status_frame = ctk.CTkFrame(self, fg_color=COLORS["FRAME"])
         self.status_frame.grid(row=3, column=0, **PADDING["FRAME"], sticky="ew")
         
-        self.status_label = ctk.CTkLabel(self.status_frame, text=LABELS["READY"])
-        self.status_label.pack(side="left", **PADDING["WIDGET"])
+        # Add a container for status label and progress bar
+        status_container = ctk.CTkFrame(self.status_frame, fg_color="transparent")
+        status_container.pack(side="left", fill="both", expand=True, **PADDING["WIDGET"])
+        
+        self.status_label = ctk.CTkLabel(status_container, text=LABELS["READY"])
+        self.status_label.pack(side="top", anchor="w", **PADDING["WIDGET"])
+        
+        # Add progress bar (initially hidden)
+        self.progress_bar = ctk.CTkProgressBar(status_container, width=400)
+        self.progress_bar.set(0)
+        self.progress_bar.pack(side="top", fill="x", **PADDING["WIDGET"])
+        self.progress_bar.pack_forget()  # Hide initially
         
         self.pause_button = ctk.CTkButton(
             self.status_frame,
@@ -218,3 +228,16 @@ class TwitchUI(ctk.CTk):
             range_value = CLIP_RANGES[self.clip_range_var.get()]
             return f"clips?filter=clips&range={range_value}"
         return VIDEO_FILTERS[filter_type]
+
+    def show_progress_bar(self):
+        """Show the progress bar and reset it to 0"""
+        self.progress_bar.set(0)
+        self.progress_bar.pack(side="top", fill="x", **PADDING["WIDGET"])
+
+    def hide_progress_bar(self):
+        """Hide the progress bar"""
+        self.progress_bar.pack_forget()
+
+    def update_progress_bar(self, progress):
+        """Update the progress bar value (0-1)"""
+        self.progress_bar.set(progress)

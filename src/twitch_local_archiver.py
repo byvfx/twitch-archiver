@@ -128,15 +128,28 @@ class TwitchVODArchiver:
 
     def _download_vod_thread(self, checkbox, url):
         """Background thread for downloading a VOD"""
-        self.ui.after(0, lambda: self.ui.update_status(f"Downloading: {checkbox.cget('text')}"))
+        self.ui.after(0, lambda: [
+            self.ui.update_status(f"Downloading: {checkbox.cget('text')}"),
+            self.ui.show_progress_bar()
+        ])
         
         ydl_opts = DOWNLOAD_OPTS.copy()
         ydl_opts['outtmpl'] = os.path.join(self.ui.get_download_path(), '%(title)s.%(ext)s')
         
-        # Define the progress hook before using it
+        # Define the progress hook with progress bar updates
         def progress_hook(d):
             if self.is_cancelled:
                 raise Exception("Download cancelled")
+            
+            if d['status'] == 'downloading':
+                # Calculate download progress
+                if 'total_bytes' in d and d['total_bytes'] > 0:
+                    progress = d['downloaded_bytes'] / d['total_bytes']
+                    # Update progress bar in main thread
+                    self.ui.after(0, lambda: self.ui.update_progress_bar(progress))
+                elif 'total_bytes_estimate' in d and d['total_bytes_estimate'] > 0:
+                    progress = d['downloaded_bytes'] / d['total_bytes_estimate']
+                    self.ui.after(0, lambda: self.ui.update_progress_bar(progress))
         
         # Add the progress hook to options
         ydl_opts['progress_hooks'] = [progress_hook]
@@ -166,6 +179,7 @@ class TwitchVODArchiver:
         self.ui.currently_downloading = False
         self.ui.download_button.configure(state="normal")
         self.ui.pause_button.configure(state="normal")
+        self.ui.hide_progress_bar()  # Hide progress bar when done
         
         if self.ui.download_queue:
             self._process_download_queue()
