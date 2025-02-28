@@ -12,6 +12,8 @@ import customtkinter as ctk
 
 from twitch_ui import TwitchUI
 from ytdlp_config import FETCH_OPTS, DOWNLOAD_OPTS, DEFAULT_OUTPUT_TEMPLATE
+from twitch_chat import TwitchChatRetriever, extract_video_id
+from twitch_chat_ui import TwitchChatUI
 
 # Configure logging
 logging.basicConfig(
@@ -34,6 +36,10 @@ class TwitchVODArchiver:
         # Disable pause button initially since no downloads are active
         self.ui.pause_button.configure(state="disabled")
         logger.info("Application initialized")
+
+        self.chat_ui = TwitchChatUI(self.ui)
+        self.chat_retriever = None
+        logger.info("Chat UI initialized")
 
     def _setup_callbacks(self):
         """Set up button callbacks"""
@@ -235,7 +241,32 @@ class TwitchVODArchiver:
                 ydl.download([url])
                 logger.info(f"Successfully downloaded: {vod_title}")
                 self.ui.after(0, lambda: checkbox.configure(state="disabled"))
+
+                if self.chat_ui.is_chat_download_enabled():
+                    self.ui.after(0, lambda: self.ui.update_status(f"Downloading chat for: {vod_title}"))
+
+                    if not self.chat_retriever:
+                        credentials = self.chat_ui.get_credentials()
+                        self.chat_retriever = TwitchChatRetriever(
+                            client_id=credentials["client_id"],
+                            client_secret=credentials["client_secret"]
+                        )
                 
+                video_id = extract_video_id(url)
+                if video_id:
+                    # Make callback to update chat download progress
+                    def chat_progress_callback(progress):
+                        self.ui.after(0, lambda: self.ui.update_progress_bar(progress))
+
+                    # Download chat
+                    success = self.chat_retriever.download_chat(video_id, download_path, progress_callback=chat_progress_callback)
+                    
+                    if success:
+                        logging.info(f"Chat downloaded successfully for: {vod_title}")
+                    else:
+                        logging.error(f"Error downloading chat for: {vod_title}") 
+                        self.ui.after(0, lambda: self.ui.update_status(f"Error downloading chat"))
+
         except Exception as e:
             error_msg = str(e)
             if "paused" in error_msg.lower():
