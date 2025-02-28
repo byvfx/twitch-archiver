@@ -15,7 +15,7 @@ from ytdlp_config import FETCH_OPTS, DOWNLOAD_OPTS
 class TwitchVODArchiver:
     def __init__(self):
         self.ui = TwitchUI()
-        self.is_cancelled = False
+        self.is_paused = False
         self.current_ydl = None
         self.download_thread = None
         self._setup_callbacks()
@@ -26,7 +26,7 @@ class TwitchVODArchiver:
         self.ui.browse_button.configure(command=self.browse_path)
         self.ui.download_button.configure(command=self.download_selected)
         self.ui.select_all_button.configure(command=self.select_all_vods)
-        self.ui.pause_button.configure(command=self.cancel_downloads)
+        self.ui.pause_button.configure(command=self.pause_downloads)
 
     def browse_path(self):
         """Open directory browser"""
@@ -84,10 +84,10 @@ class TwitchVODArchiver:
         for checkbox, _ in self.ui.vod_checkboxes:
             checkbox.select()
 
-    def cancel_downloads(self):
-        """Cancel ongoing downloads"""
+    def pause_downloads(self):
+        """Pause ongoing downloads"""
         if self.ui.currently_downloading:
-            self.is_cancelled = True
+            self.is_paused = True
             self.ui.update_status("Pausing downloads...")
             self.ui.download_button.configure(state="disabled")
             self.ui.pause_button.configure(state="disabled")
@@ -116,9 +116,9 @@ class TwitchVODArchiver:
 
     def _process_download_queue(self):
         """Process the download queue"""
-        if not self.ui.download_queue or self.is_cancelled:
+        if not self.ui.download_queue or self.is_paused:
             self.ui.currently_downloading = False
-            self.ui.update_status("Ready" if not self.is_cancelled else "Downloads cancelled")
+            self.ui.update_status("Ready" if not self.is_paused else "Downloads paused")
             return
 
         self.ui.currently_downloading = True
@@ -140,8 +140,8 @@ class TwitchVODArchiver:
         
         # Define the progress hook with progress bar updates
         def progress_hook(d):
-            if self.is_cancelled:
-                raise Exception("Download cancelled")
+            if self.is_paused:
+                raise Exception("Download paused")
             
             if d['status'] == 'downloading':
                 # Calculate download progress
@@ -166,30 +166,23 @@ class TwitchVODArchiver:
                 
         except Exception as e:
             error_msg = str(e)
-            if "cancelled" in error_msg.lower():
-                self.ui.after(0, lambda: self.ui.update_status("Download cancelled"))
+            if "paused" in error_msg.lower():
+                self.ui.after(0, lambda: self.ui.update_status("Download paused"))
             else:
                 self.ui.after(0, lambda: self.ui.update_status(f"Error downloading: {error_msg}"))
         finally:
-            self.ui.after(0, lambda: self._cleanup_after_download())
+            # Handle cleanup directly instead of calling _cleanup_after_download
+            self.ui.after(0, lambda: [
+                setattr(self, 'current_ydl', None),
+                setattr(self, 'download_thread', None),
+                setattr(self, 'is_paused', False),
+                setattr(self.ui, 'currently_downloading', False),
+                self.ui.download_button.configure(state="normal"),
+                self.ui.pause_button.configure(state="normal"),
+                self.ui.hide_progress_bar(),
+                self._process_download_queue() if self.ui.download_queue else self.ui.update_status("Ready")
+            ])
             
-    def _cleanup_after_download(self):
-        """Clean up after a download completes or is cancelled"""
-        self.current_ydl = None
-        self.download_thread = None
-        self.is_cancelled = False
-        self.ui.currently_downloading = False
-        self.ui.download_button.configure(state="normal")
-        self.ui.pause_button.configure(state="normal")
-        self.ui.hide_progress_bar()  # Hide progress bar when done
-        
-        if self.ui.download_queue:
-            self._process_download_queue()
-        else:
-            self.ui.update_status("Ready")
-            
-    
-       
     def run(self):
         """Start the application"""
         self.ui.mainloop()
