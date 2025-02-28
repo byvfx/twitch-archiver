@@ -45,7 +45,7 @@ A desktop application for downloading Twitch VODs (Video on Demand) with a user-
 1. Run the application:
 
 ```bash
-python twitch_local_archiver.py
+python main.py
 ```
 
 1. Enter a Twitch channel name
@@ -87,4 +87,4 @@ python twitch_local_archiver.py
 - [x] Add support for downloading clips, highlights, collections
 - [ ] Add support for capturing chat logs
 - [ ] Cancel individual downloads turns out yt-dlp doesn't support a native call to cancel a download
-- [x] Add download progress bar - in current version, not the release
+- [x] Add download progress bar - in the current version, not the release
