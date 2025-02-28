@@ -39,7 +39,8 @@ LABELS = {
     "DOWNLOAD": "Download Selected",
     "SELECT_ALL": "Select All",
     "READY": "Ready",
-    "PAUSE": "Pause Downloads", # This label correctly describes what the button does
+    "PAUSE": "Pause Downloads",
+    "RESUME": "Resume Downloads", # Added this new label
     "EXPLORE": "Explore",
     "FILTER_TYPE": "Filter Type:",
     "CLIP_RANGE": "Clip Range:",

@@ -12,7 +12,7 @@ A desktop application for downloading Twitch VODs (Video on Demand) with a user-
 - Fetch VODs from any Twitch channel
 - Select multiple VODs for batch downloading
 - Download progress tracking
-- Pause in-progress downloads
+- Pause and resume in-progress downloads
 - Customizable download location
 - Quick access to download folder
 
@@ -26,6 +26,11 @@ A desktop application for downloading Twitch VODs (Video on Demand) with a user-
 ## Installation
 
 1. Clone the repository
+  
+   ```bash
+   git clone https://github.com/byvfx/twitch-archiver.git
+   ```
+
 2. Install dependencies using one of these methods:
 
    Using pip directly:

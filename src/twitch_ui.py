@@ -224,7 +224,7 @@ class TwitchUI(ctk.CTk):
     def get_selected_filter(self):
         """Get the currently selected filter URL"""
         filter_type = self.filter_var.get()
-        if (filter_type == "Clips"):
+        if filter_type == "Clips":
             range_value = CLIP_RANGES[self.clip_range_var.get()]
             return f"clips?filter=clips&range={range_value}"
         return VIDEO_FILTERS[filter_type]
