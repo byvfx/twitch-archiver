@@ -12,7 +12,7 @@ A desktop application for downloading Twitch VODs (Video on Demand) with a user-
 - Fetch VODs from any Twitch channel
 - Select multiple VODs for batch downloading
 - Download progress tracking
-- Cancel in-progress downloads - broken at the moment
+- Pause in-progress downloads
 - Customizable download location
 - Quick access to download folder
 
