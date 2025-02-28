@@ -72,8 +72,10 @@ class TwitchVODArchiver:
                         self.ui.add_vod_checkbox(t, d, ud, u))
 
                 self.ui.after(0, lambda: self.ui.update_status(f"Found {len(entries)} VODs"))
+                
         except Exception as e:
-            self.ui.after(0, lambda: self.ui.update_status(f"Error fetching VODs: {str(e)}"))
+            error_msg = str(e)
+            self.ui.after(0, lambda: self.ui.update_status(f"Error fetching VODs: {str(error_msg)}"))
         finally:
             self.ui.after(0, lambda: self.ui.fetch_button.configure(state="normal"))
 
