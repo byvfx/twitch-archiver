@@ -9,6 +9,7 @@ import logging
 import requests
 import datetime
 import threading
+import re
 from typing import Dict, List, Optional, Tuple
 
 logger = logging.getLogger("TwitchChatRetriever")
@@ -27,6 +28,7 @@ class TwitchChatRetriever:
         self.access_token = None
         self.token_expiry = 0
         self.base_url = "https://api.twitch.tv/helix"
+        self.gql_url = "https://gql.twitch.tv/gql"
         
     def authenticate(self) -> bool:
         """
@@ -56,7 +58,7 @@ class TwitchChatRetriever:
                 logger.info("Successfully authenticated with Twitch API")
                 return True
             else:
-                logger.error(f"Failed to authenticate: {response.status_code} - {response.text}")
+                logger.error(f"Failed to authenticate: {response.status_code} - Error response received")
                 return False
                 
         except Exception as e:
@@ -106,7 +108,7 @@ class TwitchChatRetriever:
     
     def download_chat(self, video_id: str, output_path: str, progress_callback=None) -> bool:
         """
-        Download chat for a specific VOD
+        Download chat for a specific VOD using Twitch's GQL API
         
         Args:
             video_id: Twitch video ID
@@ -116,17 +118,23 @@ class TwitchChatRetriever:
         Returns:
             bool: True if download was successful
         """
+        logger.info(f"Starting chat download for video ID: {video_id}")
+        
         if not self.authenticate():
+            logger.error("Authentication failed - cannot download chat")
             return False
             
         try:
             # Remove "v" prefix if present
             if video_id.startswith("v"):
                 video_id = video_id[1:]
+            
+            logger.info(f"Using cleaned video ID: {video_id}")
                 
             # Get video information to get duration
             video_info = self.get_video_info(video_id)
             if not video_info:
+                logger.error(f"Could not get video info for video ID: {video_id}")
                 return False
                 
             # Create output directory if it doesn't exist
@@ -140,46 +148,24 @@ class TwitchChatRetriever:
             safe_filename = "".join(c for c in filename if c.isalnum() or c in " -_.").strip()
             output_file = os.path.join(output_path, safe_filename)
             
-            # Get comments in batches
-            cursor = None
-            all_comments = []
-            url = f"{self.base_url}/videos/{video_id}/comments"
-            headers = {
-                "Client-ID": self.client_id,
-                "Authorization": f"Bearer {self.access_token}"
-            }
-            
+            # We'll use Twitch's GQL API to get chat comments
             total_duration_seconds = self._parse_duration(video_info["duration"])
             
             logger.info(f"Downloading chat for video {video_id} (Duration: {video_info['duration']})")
+            logger.info(f"Chat will be saved to: {output_file}")
             
-            while True:
-                params = {"first": 100}  # Maximum allowed by API
-                if cursor:
-                    params["cursor"] = cursor
-                    
-                response = requests.get(url, headers=headers, params=params)
-                if response.status_code != 200:
-                    logger.error(f"Failed to get comments: {response.status_code} - {response.text}")
-                    break
-                    
-                data = response.json()
-                batch_comments = data.get("data", [])
-                all_comments.extend(batch_comments)
+            # Try using the direct chat download approach first
+            all_comments = self._download_chat_by_segments(video_id, total_duration_seconds, progress_callback)
+            
+            if not all_comments:
+                logger.warning("Segment method failed or returned no comments, trying cursor method...")
+                all_comments = self._download_chat_by_cursor(video_id, total_duration_seconds, progress_callback)
                 
-                # Update progress if callback provided
-                if progress_callback and total_duration_seconds > 0 and batch_comments:
-                    latest_comment_time = int(batch_comments[-1].get("content_offset_seconds", 0))
-                    progress = min(1.0, latest_comment_time / total_duration_seconds)
-                    progress_callback(progress)
+            if not all_comments:
+                logger.warning("Both methods failed, falling back to offset sampling...")
+                all_comments = self._download_chat_by_sampling(video_id, total_duration_seconds, progress_callback)
                 
-                # Check if there are more comments
-                cursor = data.get("pagination", {}).get("cursor")
-                if not cursor:
-                    break
-                    
-                # Add a small delay to avoid rate limiting
-                time.sleep(0.25)
+            logger.info(f"Total comments retrieved: {len(all_comments)}")
             
             # Save to file
             with open(output_file, 'w', encoding='utf-8') as f:
@@ -202,6 +188,410 @@ class TwitchChatRetriever:
         except Exception as e:
             logger.error(f"Error downloading chat: {str(e)}", exc_info=True)
             return False
+
+    def _download_chat_by_cursor(self, video_id, total_duration_seconds, progress_callback=None):
+        """Download chat using cursor-based pagination"""
+        logger.info("Using cursor-based chat download method...")
+        
+        all_comments = []
+        cursor = None
+        has_next_page = True
+        processed_edges = set()  # Track processed edges to avoid duplication
+        
+        # GQL headers with the website's client ID
+        headers = {
+            "Client-ID": "kimne78kx3ncx6brgo4mv6wki5h1ko",
+            "Content-Type": "application/json"
+        }
+        
+        # Optional: add authorization if we have a token
+        if self.access_token:
+            headers["Authorization"] = f"Bearer {self.access_token}"
+        
+        # Set a reasonable limit for iterations to prevent infinite loops
+        max_iterations = 200
+        iterations = 0
+        
+        while has_next_page and iterations < max_iterations:
+            iterations += 1
+            
+            # GraphQL query for comments
+            gql_query = {
+                "operationName": "VideoCommentsByOffsetOrCursor",
+                "variables": {
+                    "videoID": video_id
+                },
+                "extensions": {
+                    "persistedQuery": {
+                        "version": 1,
+                        "sha256Hash": "b70a3591ff0f4e0313d126c6a1502d79a1c02baebb288227c582044aa76adf6a"
+                    }
+                }
+            }
+            
+            # Decide whether to use cursor or offset
+            if cursor:
+                gql_query["variables"]["cursor"] = cursor
+                logger.debug(f"Using cursor: {cursor}")
+            else:
+                # Start from the beginning
+                gql_query["variables"]["contentOffsetSeconds"] = 0
+                logger.debug("Starting from contentOffsetSeconds: 0")
+                
+            try:
+                response = requests.post(self.gql_url, json=gql_query, headers=headers)
+                
+                if response.status_code != 200:
+                    logger.error(f"Failed to get comments: {response.status_code} - {response.text}")
+                    break
+                    
+                data = response.json()
+                
+                if "errors" in data:
+                    logger.error(f"GQL errors: {data['errors']}")
+                    break
+                    
+                comments_data = data.get("data", {}).get("video", {}).get("comments", {})
+                edges = comments_data.get("edges", [])
+                logger.debug(f"Retrieved {len(edges)} comments in iteration {iterations}")
+                
+                # Check if we got any new edges
+                if not edges:
+                    logger.warning(f"No comments found in this batch")
+                    break
+                    
+                # Process edges
+                new_comments = 0
+                max_offset = 0
+                
+                for edge in edges:
+                    # Generate a unique ID for this edge to avoid duplication
+                    edge_id = f"{edge.get('cursor', '')}"
+                    
+                    # Skip if we've already processed this edge
+                    if edge_id in processed_edges:
+                        continue
+                        
+                    processed_edges.add(edge_id)
+                    
+                    node = edge.get("node", {})
+                    offset_seconds = node.get("contentOffsetSeconds", 0)
+                    max_offset = max(max_offset, offset_seconds)
+                    
+                    # Create a structured comment object
+                    comment = {
+                        "content_offset_seconds": offset_seconds,
+                        "commenter": {
+                            "display_name": node.get("commenter", {}).get("displayName", "Unknown"),
+                            "id": node.get("commenter", {}).get("id", "")
+                        },
+                        "message": {
+                            "body": self._extract_message_text(node.get("message", {})),
+                        },
+                        "timestamp": node.get("createdAt", "")
+                    }
+                    
+                    all_comments.append(comment)
+                    new_comments += 1
+                
+                # Check if we got any new comments
+                if new_comments == 0:
+                    logger.warning("No new comments found, breaking loop")
+                    break
+                    
+                # Check for pagination
+                page_info = comments_data.get("pageInfo", {})
+                has_next_page = page_info.get("hasNextPage", False)
+                cursor = page_info.get("endCursor", None)
+                
+                # If hasNextPage is true but endCursor is None, something's wrong
+                if has_next_page and not cursor:
+                    logger.warning("hasNextPage is true but no cursor provided, breaking loop")
+                    break
+                    
+                # Update progress
+                if progress_callback and total_duration_seconds > 0:
+                    progress = min(0.95, max_offset / total_duration_seconds)  # Cap at 95% to account for final processing
+                    progress_callback(progress)
+                    
+                logger.debug(f"Progress: {max_offset}/{total_duration_seconds}s = {max_offset/total_duration_seconds:.1%}")
+                
+                # Add a small delay to avoid rate limiting
+                time.sleep(0.5)
+                
+            except Exception as e:
+                logger.error(f"Error during comment fetch: {str(e)}", exc_info=True)
+                break
+        
+        # Sort comments by timestamp
+        all_comments.sort(key=lambda c: c["content_offset_seconds"])
+        return all_comments
+
+    def _download_chat_by_segments(self, video_id, total_duration_seconds, progress_callback=None):
+        """Download chat by breaking video into segments"""
+        logger.info("Using segment-based chat download method...")
+        
+        all_comments = []
+        processed_comments = set()  # To avoid duplicates
+        
+        # Create segments of reasonable size (e.g., 5-10 minutes)
+        segment_size = 300  # 5 minutes in seconds
+        
+        # If the video is very long, use larger segments
+        if total_duration_seconds > 7200:  # 2 hours
+            segment_size = 600  # 10 minutes
+        
+        # Calculate number of segments
+        num_segments = max(1, int(total_duration_seconds / segment_size) + 1)
+        
+        # Cap at a reasonable number of segments
+        max_segments = 50
+        if num_segments > max_segments:
+            logger.warning(f"Capping segments at {max_segments} (from {num_segments})")
+            num_segments = max_segments
+            segment_size = total_duration_seconds / max_segments
+        
+        logger.info(f"Breaking video into {num_segments} segments of ~{segment_size} seconds each")
+        
+        # Client ID for the Twitch website
+        headers = {
+            "Client-ID": "kimne78kx3ncx6brgo4mv6wki5h1ko",
+            "Content-Type": "application/json"
+        }
+        
+        # Process each segment
+        for i in range(num_segments):
+            offset_seconds = i * segment_size
+            
+            # GraphQL query for comments at this offset
+            gql_query = {
+                "operationName": "VideoCommentsByOffsetOrCursor",
+                "variables": {
+                    "videoID": video_id,
+                    "contentOffsetSeconds": offset_seconds
+                },
+                "extensions": {
+                    "persistedQuery": {
+                        "version": 1,
+                        "sha256Hash": "b70a3591ff0f4e0313d126c6a1502d79a1c02baebb288227c582044aa76adf6a"
+                    }
+                }
+            }
+            
+            logger.debug(f"Fetching segment {i+1}/{num_segments} at offset {offset_seconds:.1f}s")
+            
+            try:
+                response = requests.post(self.gql_url, json=gql_query, headers=headers)
+                
+                if response.status_code != 200:
+                    logger.warning(f"Failed to get comments for segment {i+1}: {response.status_code}")
+                    continue
+                    
+                data = response.json()
+                
+                if "errors" in data:
+                    logger.warning(f"GQL errors for segment {i+1}: {data['errors']}")
+                    continue
+                    
+                video_comments = data.get("data", {}).get("video", {}).get("comments", {})
+                edges = video_comments.get("edges", [])
+                
+                logger.debug(f"Segment {i+1}: retrieved {len(edges)} comments")
+                
+                for edge in edges:
+                    node = edge.get("node", {})
+                    
+                    # Create a simple hash to identify this comment
+                    offset = node.get("contentOffsetSeconds", 0)
+                    commenter_id = node.get("commenter", {}).get("id", "")
+                    message_body = self._extract_message_text(node.get("message", {}))
+                    comment_hash = f"{offset}-{commenter_id}-{message_body}"
+                    
+                    # Skip duplicates
+                    if comment_hash in processed_comments:
+                        continue
+                        
+                    processed_comments.add(comment_hash)
+                    
+                    # Create structured comment
+                    comment = {
+                        "content_offset_seconds": offset,
+                        "commenter": {
+                            "display_name": node.get("commenter", {}).get("displayName", "Unknown"),
+                            "id": commenter_id
+                        },
+                        "message": {
+                            "body": message_body
+                        },
+                        "timestamp": node.get("createdAt", "")
+                    }
+                    
+                    all_comments.append(comment)
+                
+                # Update progress
+                if progress_callback:
+                    progress = min(0.95, (i + 1) / num_segments)  # Cap at 95%
+                    progress_callback(progress)
+                
+                # Be nice to the API
+                time.sleep(0.5)
+                
+            except Exception as e:
+                logger.warning(f"Error processing segment {i+1}: {str(e)}")
+        
+        # Sort by timestamp and return
+        all_comments.sort(key=lambda c: c["content_offset_seconds"])
+        return all_comments
+
+    def _download_chat_by_sampling(self, video_id, total_duration_seconds, progress_callback=None):
+        """Download chat by sampling points throughout the video"""
+        logger.info("Using sampling-based chat download method...")
+        
+        all_comments = []
+        processed_offsets = set()
+        
+        # Sample points - use more points for longer videos
+        samples = 20
+        if total_duration_seconds > 3600:  # 1 hour
+            samples = 40
+        if total_duration_seconds > 10800:  # 3 hours
+            samples = 60
+        
+        # Calculate sample points throughout the video
+        sample_points = []
+        for i in range(samples):
+            offset = int(i * total_duration_seconds / samples)
+            sample_points.append(offset)
+        
+        # Add some extra points at the start
+        for offset in [0, 30, 60, 120, 300, 600]:
+            if offset < total_duration_seconds and offset not in sample_points:
+                sample_points.append(offset)
+        
+        # Sort sample points
+        sample_points.sort()
+        
+        logger.info(f"Using {len(sample_points)} sample points across the video")
+        
+        # GQL headers
+        headers = {
+            "Client-ID": "kimne78kx3ncx6brgo4mv6wki5h1ko",
+            "Content-Type": "application/json"
+        }
+        
+        # Process each sample point
+        for i, offset in enumerate(sample_points):
+            # Skip if we've already processed this offset
+            if offset in processed_offsets:
+                continue
+                
+            processed_offsets.add(offset)
+            
+            gql_query = {
+                "operationName": "VideoCommentsByOffsetOrCursor",
+                "variables": {
+                    "videoID": video_id,
+                    "contentOffsetSeconds": offset
+                },
+                "extensions": {
+                    "persistedQuery": {
+                        "version": 1,
+                        "sha256Hash": "b70a3591ff0f4e0313d126c6a1502d79a1c02baebb288227c582044aa76adf6a"
+                    }
+                }
+            }
+            
+            logger.debug(f"Sampling point {i+1}/{len(sample_points)} at {offset}s")
+            
+            try:
+                response = requests.post(self.gql_url, json=gql_query, headers=headers)
+                
+                if response.status_code != 200:
+                    logger.warning(f"Failed at sample {i+1}: {response.status_code}")
+                    continue
+                    
+                data = response.json()
+                
+                if "errors" in data:
+                    logger.warning(f"GQL errors at sample {i+1}: {data['errors']}")
+                    continue
+                    
+                video_comments = data.get("data", {}).get("video", {}).get("comments", {})
+                edges = video_comments.get("edges", [])
+                
+                logger.debug(f"Sample {i+1}: retrieved {len(edges)} comments at {offset}s")
+                
+                # Process comments from this sample
+                for edge in edges:
+                    node = edge.get("node", {})
+                    
+                    comment = {
+                        "content_offset_seconds": node.get("contentOffsetSeconds", 0),
+                        "commenter": {
+                            "display_name": node.get("commenter", {}).get("displayName", "Unknown"),
+                            "id": node.get("commenter", {}).get("id", "")
+                        },
+                        "message": {
+                            "body": self._extract_message_text(node.get("message", {}))
+                        },
+                        "timestamp": node.get("createdAt", "")
+                    }
+                    
+                    # Check for duplicates
+                    is_duplicate = False
+                    for existing in all_comments:
+                        if (existing["content_offset_seconds"] == comment["content_offset_seconds"] and
+                            existing["commenter"]["id"] == comment["commenter"]["id"] and
+                            existing["message"]["body"] == comment["message"]["body"]):
+                            is_duplicate = True
+                            break
+                    
+                    if not is_duplicate:
+                        all_comments.append(comment)
+                
+                # Update progress
+                if progress_callback:
+                    progress = min(0.95, (i + 1) / len(sample_points))
+                    progress_callback(progress)
+                    
+                # Be nice to the API
+                time.sleep(0.5)
+                
+            except Exception as e:
+                logger.warning(f"Error at sample point {offset}s: {str(e)}")
+        
+        # Sort by timestamp
+        all_comments.sort(key=lambda c: c["content_offset_seconds"])
+        
+        return all_comments
+
+    def _extract_message_text(self, message):
+        """Extract text content from message object"""
+        # Check for direct body field
+        if "body" in message and message["body"]:
+            return message["body"]
+        
+        # Try to get text from fragments
+        fragments = message.get("fragments", [])
+        if fragments:
+            text = ""
+            for fragment in fragments:
+                text += fragment.get("text", "")
+            return text
+        
+        return ""
+
+    def _extract_message_body(self, message):
+        """Extract message body from message data"""
+        if "body" in message:
+            return message["body"]
+        
+        # If body is not directly available, try to concatenate fragments
+        fragments = message.get("fragments", [])
+        if fragments:
+            return "".join(frag.get("text", "") for frag in fragments)
+            
+        return ""
     
     def _parse_duration(self, duration_str: str) -> int:
         """Parse Twitch duration string (e.g., '1h2m3s') to seconds"""
@@ -259,9 +649,10 @@ def extract_video_id(url: str) -> Optional[str]:
         
     if "twitch.tv/videos/" in url:
         # Extract the numeric part after /videos/
-        import re
         match = re.search(r'twitch\.tv/videos/(\d+)', url)
         if match:
+            logger.info(f"Extracted video ID {match.group(1)} from URL: {url}")
             return match.group(1)
     
+    logger.warning(f"Could not extract video ID from URL: {url}")
     return None

@@ -25,6 +25,8 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger("TwitchVODArchiver")
+chat_logger = logging.getLogger("TwitchChatRetriever")
+chat_logger.setLevel(logging.DEBUG)  # Set chat logger to DEBUG level
 
 class TwitchVODArchiver:
     def __init__(self):
@@ -238,34 +240,66 @@ class TwitchVODArchiver:
                 self.current_ydl = ydl
                 self.download_thread = threading.current_thread()
                 
+                # Download the video
                 ydl.download([url])
                 logger.info(f"Successfully downloaded: {vod_title}")
                 self.ui.after(0, lambda: checkbox.configure(state="disabled"))
 
+                # Check if chat download is enabled
                 if self.chat_ui.is_chat_download_enabled():
-                    self.ui.after(0, lambda: self.ui.update_status(f"Downloading chat for: {vod_title}"))
+                    logger.info(f"Chat download is enabled, attempting to download chat for: {vod_title}")
+                    self.ui.after(0, lambda: [
+                        self.ui.update_status(f"Downloading chat for: {vod_title}"),
+                        self.ui.show_progress_bar(),
+                        self.ui.update_progress_bar(0)  # Reset progress bar for chat download
+                    ])
 
-                    if not self.chat_retriever:
-                        credentials = self.chat_ui.get_credentials()
-                        self.chat_retriever = TwitchChatRetriever(
-                            client_id=credentials["client_id"],
-                            client_secret=credentials["client_secret"]
-                        )
-                
-                video_id = extract_video_id(url)
-                if video_id:
-                    # Make callback to update chat download progress
-                    def chat_progress_callback(progress):
-                        self.ui.after(0, lambda: self.ui.update_progress_bar(progress))
-
-                    # Download chat
-                    success = self.chat_retriever.download_chat(video_id, download_path, progress_callback=chat_progress_callback)
+                    # Extract video ID from URL
+                    video_id = extract_video_id(url)
+                    logger.info(f"Extracted video ID: {video_id} from URL: {url}")
                     
-                    if success:
-                        logging.info(f"Chat downloaded successfully for: {vod_title}")
+                    if video_id:
+                        # Initialize chat retriever if needed
+                        if not self.chat_retriever:
+                            credentials = self.chat_ui.get_api_credentials()
+                            logger.info(f"Initializing chat retriever with client ID: [REDACTED]")
+                            
+                            # Ensure we have valid credentials
+                            if not credentials['client_id'] or not credentials['client_secret']:
+                                logger.error("Missing API credentials")
+                                self.ui.after(0, lambda: self.ui.update_status("Error: Missing API credentials"))
+                                return
+                                
+                            self.chat_retriever = TwitchChatRetriever(
+                                client_id=credentials["client_id"],
+                                client_secret=credentials["client_secret"]
+                            )
+                        
+                        # Make callback to update chat download progress
+                        def chat_progress_callback(progress):
+                            self.ui.after(0, lambda: self.ui.update_progress_bar(progress))
+                            if progress % 0.1 < 0.01:  # Log every ~10%
+                                logger.debug(f"Chat download progress: {progress:.1%}")
+
+                        # Download chat to same directory as VOD
+                        logger.info(f"Starting chat download for video ID {video_id}")
+                        success = self.chat_retriever.download_chat(
+                            video_id, 
+                            download_path,
+                            progress_callback=chat_progress_callback
+                        )
+                        
+                        if success:
+                            logger.info(f"Chat downloaded successfully for: {vod_title}")
+                            self.ui.after(0, lambda: self.ui.update_status(f"Chat downloaded successfully"))
+                        else:
+                            logger.error(f"Error downloading chat for: {vod_title}")
+                            self.ui.after(0, lambda: self.ui.update_status(f"Error downloading chat"))
                     else:
-                        logging.error(f"Error downloading chat for: {vod_title}") 
-                        self.ui.after(0, lambda: self.ui.update_status(f"Error downloading chat"))
+                        logger.warning(f"Could not extract video ID from URL: {url}")
+                        self.ui.after(0, lambda: self.ui.update_status("Could not extract video ID for chat download"))
+                else:
+                    logger.info(f"Chat download is disabled or not configured properly")
 
         except Exception as e:
             error_msg = str(e)
@@ -278,7 +312,7 @@ class TwitchVODArchiver:
         finally:
             # Clean up after download
             self.ui.after(0, lambda: self._cleanup_download_state(vod_title))
-            
+
     def _cleanup_download_state(self, vod_title=None):
         """Clean up the download state and process the next item in queue"""
         self.current_ydl = None

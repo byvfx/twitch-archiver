@@ -6,8 +6,12 @@ import tkinter as tk
 import customtkinter as ctk
 import os
 import json
+import logging
 import threading
+import requests
 from typing import Dict, Optional
+
+logger = logging.getLogger("TwitchChatUI")
 
 class TwitchChatUI:
     def __init__(self, master):
@@ -30,6 +34,8 @@ class TwitchChatUI:
         # Create UI components
         self._create_api_frame()
         self._create_chat_option()
+        
+        logger.info("TwitchChatUI initialized")
         
     def _create_api_frame(self):
         """Create the frame for Twitch API credentials"""
@@ -59,7 +65,7 @@ class TwitchChatUI:
         # Create a toplevel window for API settings
         self.api_window = ctk.CTkToplevel(self.master)
         self.api_window.title("Twitch API Settings")
-        self.api_window.geometry("500x250")
+        self.api_window.geometry("550x300")
         self.api_window.transient(self.master)
         self.api_window.grab_set()
         
@@ -131,6 +137,29 @@ class TwitchChatUI:
             self._show_error("Both Client ID and Client Secret are required.")
             return
         
+        # Verify the credentials by attempting to get an access token
+        try:
+            auth_url = "https://id.twitch.tv/oauth2/token"
+            params = {
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "grant_type": "client_credentials"
+            }
+            
+            self.master.update_status("Verifying API credentials...")
+            response = requests.post(auth_url, params=params)
+            
+            if response.status_code != 200:
+                self._show_error("Invalid credentials. Please check your Client ID and Secret.")
+                logger.error(f"API credential verification failed: {response.status_code}")
+                return
+                
+            logger.info("API credentials verified successfully")
+                
+        except Exception as e:
+            self._show_error(f"Error verifying credentials: {str(e)}")
+            return
+        
         # Save credentials to a config file
         config_dir = os.path.join(os.path.expanduser("~"), ".twitch_archiver")
         os.makedirs(config_dir, exist_ok=True)
@@ -147,7 +176,7 @@ class TwitchChatUI:
             
             self.is_configured = True
             self.api_window.destroy()
-            self.master.update_status("API credentials saved successfully.")
+            self.master.update_status("API credentials verified and saved successfully.")
         except Exception as e:
             self._show_error(f"Error saving credentials: {str(e)}")
     
@@ -192,11 +221,29 @@ class TwitchChatUI:
     
     def is_chat_download_enabled(self) -> bool:
         """Check if chat download is enabled"""
-        return self.is_configured and self.chat_download_var.get() == "1"
-    
+        # Only enable if configured and checkbox is checked
+        enabled = self.chat_download_var.get() == "1"
+        configured = self.is_configured
+        
+        logger.info(f"Chat download enabled: {enabled}, configured: {configured}")
+        
+        if enabled and not configured:
+            logger.warning("Chat download requested but API not configured")
+            self._show_error("API credentials must be configured first. Click 'API Settings' to set them up.")
+            self.chat_download_var.set("0")
+            return False
+            
+        return enabled and configured
+
     def get_api_credentials(self) -> Dict[str, str]:
         """Get the API credentials"""
-        return {
+        credentials = {
             "client_id": self.client_id_var.get().strip(),
             "client_secret": self.client_secret_var.get().strip()
         }
+        
+        # Check if credentials are valid
+        if not credentials["client_id"] or not credentials["client_secret"]:
+            logger.warning("Attempting to get empty API credentials")
+            
+        return credentials
