@@ -1,6 +1,7 @@
 """
 Test script for downloading Twitch VOD chat
 This is separate from the main app to help with debugging
+Uses the async version of the TwitchChatRetriever
 """
 
 import os
@@ -9,6 +10,7 @@ import json
 import time
 import argparse
 import logging
+import asyncio
 from twitch_chat import TwitchChatRetriever
 
 # Configure logging
@@ -44,7 +46,7 @@ def progress_callback(progress):
     progress_str = f"{progress:.1%}"
     print(f"Download progress: {progress_str}", end='\r')
 
-def main():
+async def async_main():
     parser = argparse.ArgumentParser(description="Test chat download for Twitch VODs")
     parser.add_argument("video_id", help="Twitch video ID (numeric part only)")
     parser.add_argument("--output", "-o", default=".", help="Output directory")
@@ -68,32 +70,39 @@ def main():
     # Create chat retriever
     retriever = TwitchChatRetriever(client_id, client_secret)
     
-    # Authenticate
-    if not retriever.authenticate():
-        logger.error("Failed to authenticate with Twitch API")
-        return 1
-    
-    # Get video info
-    video_info = retriever.get_video_info(video_id)
-    if not video_info:
-        logger.error(f"Failed to get video info for ID: {video_id}")
-        return 1
-    
-    logger.info(f"Video title: {video_info.get('title')}")
-    logger.info(f"Channel: {video_info.get('user_name')}")
-    logger.info(f"Duration: {video_info.get('duration')}")
-    
-    # Download chat
-    start_time = time.time()
-    success = retriever.download_chat(video_id, args.output, progress_callback)
-    elapsed = time.time() - start_time
-    
-    if success:
-        logger.info(f"Chat download completed in {elapsed:.2f} seconds")
-        return 0
-    else:
-        logger.error(f"Chat download failed after {elapsed:.2f} seconds")
-        return 1
+    try:
+        # Authenticate
+        if not await retriever.authenticate():
+            logger.error("Failed to authenticate with Twitch API")
+            return 1
+        
+        # Get video info
+        video_info = await retriever.get_video_info(video_id)
+        if not video_info:
+            logger.error(f"Failed to get video info for ID: {video_id}")
+            return 1
+        
+        logger.info(f"Video title: {video_info.get('title')}")
+        logger.info(f"Channel: {video_info.get('user_name')}")
+        logger.info(f"Duration: {video_info.get('duration')}")
+        
+        # Download chat
+        start_time = time.time()
+        success = await retriever.download_chat(video_id, args.output, progress_callback)
+        elapsed = time.time() - start_time
+        
+        if success:
+            logger.info(f"Chat download completed in {elapsed:.2f} seconds")
+            return 0
+        else:
+            logger.error(f"Chat download failed after {elapsed:.2f} seconds")
+            return 1
+    finally:
+        await retriever.close()
+
+def main():
+    """Runs the async main function"""
+    return asyncio.run(async_main())
 
 if __name__ == "__main__":
     sys.exit(main())

@@ -6,6 +6,7 @@ import datetime
 import threading
 import os
 import logging
+import asyncio
 
 import yt_dlp
 import customtkinter as ctk
@@ -281,20 +282,38 @@ class TwitchVODArchiver:
                             if progress % 0.1 < 0.01:  # Log every ~10%
                                 logger.debug(f"Chat download progress: {progress:.1%}")
 
-                        # Download chat to same directory as VOD
+                        # Download chat to same directory as VOD using async
                         logger.info(f"Starting chat download for video ID {video_id}")
-                        success = self.chat_retriever.download_chat(
-                            video_id, 
-                            download_path,
-                            progress_callback=chat_progress_callback
-                        )
                         
-                        if success:
-                            logger.info(f"Chat downloaded successfully for: {vod_title}")
-                            self.ui.after(0, lambda: self.ui.update_status(f"Chat downloaded successfully"))
-                        else:
-                            logger.error(f"Error downloading chat for: {vod_title}")
-                            self.ui.after(0, lambda: self.ui.update_status(f"Error downloading chat"))
+                        # Create and run asyncio task for chat download in a separate thread
+                        async def download_chat_async():
+                            success = await self.chat_retriever.download_chat(
+                                video_id, 
+                                download_path,
+                                progress_callback=chat_progress_callback
+                            )
+                            return success
+                        
+                        # Run the async chat download on a new event loop
+                        def run_async_chat_download():
+                            loop = asyncio.new_event_loop()
+                            asyncio.set_event_loop(loop)
+                            try:
+                                success = loop.run_until_complete(download_chat_async())
+                                if success:
+                                    logger.info(f"Chat downloaded successfully for: {vod_title}")
+                                    self.ui.after(0, lambda: self.ui.update_status(f"Chat downloaded successfully"))
+                                else:
+                                    logger.error(f"Error downloading chat for: {vod_title}")
+                                    self.ui.after(0, lambda: self.ui.update_status(f"Error downloading chat"))
+                            finally:
+                                loop.close()
+                        
+                        # Start chat download in a thread
+                        chat_thread = threading.Thread(target=run_async_chat_download)
+                        chat_thread.daemon = True
+                        chat_thread.start()
+                        chat_thread.join()  # Wait for chat download to complete
                     else:
                         logger.warning(f"Could not extract video ID from URL: {url}")
                         self.ui.after(0, lambda: self.ui.update_status("Could not extract video ID for chat download"))
