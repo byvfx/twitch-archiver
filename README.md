@@ -90,6 +90,7 @@ python main.py
 - The API key is only needed for downloading chat logs, and can be obtained from the Twitch Developer Dashboard, i put insructions on how to get the API key in the application itself.
 - The application saves the API key in a file called `config.json` in the user's home directory. I made a button to explore to the location or print it out in the UI.
 - Currently looking into encrypt the API key in the config file for future releases.
+- test_twitch_chat.py is a test file for the twitch API, it is not needed for the application to run. you can run it to test the API key and see if it is working. the only argument is the video ID.
 
 ## TODO
 
@@ -100,3 +101,4 @@ python main.py
 - [ ] Speed up encoding from the yt-dlp output
 - [ ] Add encryption for the API key in the config file
 - [ ] Add quality options for downloads
+- [ ] Refactor directory structure
