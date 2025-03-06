@@ -9,19 +9,21 @@ A desktop application for downloading Twitch VODs (Video on Demand) with a user-
 ## Features
 
 - Clean and modern dark theme UI matching Twitch's style
-- Fetch VODs from any Twitch channel
+- Fetch VODs from any Twitch channel thats public or you are subscribed to
 - Select multiple VODs for batch downloading
 - Download progress tracking
 - Pause and resume in-progress downloads
 - Customizable download location
 - Quick access to download folder
+- Captures original video titles and dates
+- Supports downloading clips, highlights, collections
+- Supports downloading chat logs
 
 ## Requirements
 
 - Python 3.7+
 - Required packages:
-  - customtkinter
-  - yt-dlp
+  see requirements.txt
 
 ## Installation
 
@@ -31,15 +33,7 @@ A desktop application for downloading Twitch VODs (Video on Demand) with a user-
    git clone https://github.com/byvfx/twitch-archiver.git
    ```
 
-2. Install dependencies using one of these methods:
-
-   Using pip directly:
-
-   ```bash
-   pip install customtkinter yt-dlp
-   ```
-
-   Using requirements.txt:
+2. Install dependencies using pip:
 
    ```bash
    pip install -r requirements.txt
@@ -58,6 +52,8 @@ python main.py
 1. Select the VODs you want to download
 1. Choose download location (defaults to Downloads folder)
 1. Click "Download Selected" to start downloading
+1. Optionally, click "Pause Download" to pause the download, and click "Resume Download" to resume the download
+2. API settings button will open a new window with instructions on how to get the API key
 
 ## Controls
 
@@ -73,10 +69,13 @@ python main.py
 - **Select All**: Selects all VODs in the list
 - **Download Selected**: Starts downloading selected VODs
 - **Pause Download**: Pauses current and queued downloads
+- **Resume Download**: Resumes paused downloads
+- **API Key**: Enter your Twitch API key (only needed for downloading chat logs)
 
 ## Notes
 
-- Downloads are processed sequentially to avoid overwhelming the network
+- Downloads are processed sequentially to avoid overwhelming the network ( might add the option to download multiple at once in the future)
+- The application uses the Twitch API to fetch VODs, which requires an API key
 - Different filter types access different kinds of content:
   - All Videos typically contains past broadcasts (stored for 14-60 days depending on user level)
   - Highlights are permanently stored stream segments marked by the streamer
@@ -86,10 +85,18 @@ python main.py
 - VODs are saved in their best available quality
 - Downloaded VODs are marked as disabled in the UI
 - The application preserves original video titles and dates
+- After the download is complete, the VODs are automatically converted to MP4 format using yt-dlp which seems to take a while to convert so be patient, i am looking into this.
+- Chat logs are saved in a separate file with the same name as the video
+- The API key is only needed for downloading chat logs, and can be obtained from the Twitch Developer Dashboard, i put insructions on how to get the API key in the application itself.
+- The application saves the API key in a file called `config.json` in the user's home directory. I made a button to explore to the location or print it out in the UI.
+- Currently looking into encrypt the API key in the config file for future releases.
 
 ## TODO
 
 - [x] Add support for downloading clips, highlights, collections
-- [ ] Add support for capturing chat logs
-- [ ] Cancel individual downloads turns out yt-dlp doesn't support a native call to cancel a download
+- [x] Add support for capturing chat logs
 - [x] Add download progress bar - in the current version, not the release
+- [ ] Add support for downloading VODs from specific dates
+- [ ] Speed up encoding from the yt-dlp output
+- [ ] Add encryption for the API key in the config file
+- [ ] Add quality options for downloads

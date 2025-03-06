@@ -4,7 +4,6 @@ customtkinter==5.2.2
 darkdetect==0.8.0
 idna==3.10
 packaging==24.2
-pip @ file:///home/conda/feedstock_root/build_artifacts/pip_1739142759263/work
 requests==2.32.3
 aiohttp==3.11.13
 setuptools==75.8.0
