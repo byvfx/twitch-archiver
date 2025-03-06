@@ -1,5 +1,5 @@
 """
-Test utility for Twitch chat download
+Test utility for Twitch chat download - Async Version
 """
 
 import os
@@ -8,6 +8,7 @@ import time
 import json
 import logging
 import argparse
+import asyncio
 from twitch_chat import TwitchChatRetriever
 
 # Set up logging
@@ -51,7 +52,7 @@ def progress_callback(progress):
     progress_str = f"{progress:.1%}"
     print(f"Download progress: {progress_str}", end='\r')
 
-def main():
+async def async_main():
     parser = argparse.ArgumentParser(description="Test Twitch chat download")
     parser.add_argument("video_id", help="Twitch video ID (with or without 'v' prefix)")
     parser.add_argument("--output", "-o", default=".", help="Output directory path")
@@ -78,84 +79,91 @@ def main():
     # Initialize chat retriever
     retriever = TwitchChatRetriever(client_id, client_secret)
     
-    # Authenticate
-    if not retriever.authenticate():
-        logger.error("Authentication failed")
-        return 1
+    try:
+        # Authenticate
+        if not await retriever.authenticate():
+            logger.error("Authentication failed")
+            return 1
+            
+        # Get video info
+        logger.info("Getting video info...")
+        video_info = await retriever.get_video_info(video_id)
         
-    # Get video info
-    logger.info("Getting video info...")
-    video_info = retriever.get_video_info(video_id)
-    
-    if not video_info:
-        logger.error("Failed to get video info")
-        return 1
+        if not video_info:
+            logger.error("Failed to get video info")
+            return 1
+            
+        logger.info(f"Video title: {video_info.get('title')}")
+        logger.info(f"Channel: {video_info.get('user_name')}")
+        logger.info(f"Duration: {video_info.get('duration')}")
         
-    logger.info(f"Video title: {video_info.get('title')}")
-    logger.info(f"Channel: {video_info.get('user_name')}")
-    logger.info(f"Duration: {video_info.get('duration')}")
-    
-    # Calculate duration in seconds
-    duration_seconds = retriever._parse_duration(video_info.get('duration', '0h0m0s'))
-    logger.info(f"Duration in seconds: {duration_seconds}")
-    
-    # Download chat
-    logger.info("Starting chat download...")
-    start_time = time.time()
-    
-    if args.method == "cursor":
-        comments = retriever._download_chat_by_cursor(video_id, duration_seconds, progress_callback)
-        success = len(comments) > 0
+        # Calculate duration in seconds
+        duration_seconds = retriever._parse_duration(video_info.get('duration', '0h0m0s'))
+        logger.info(f"Duration in seconds: {duration_seconds}")
+        
+        # Download chat
+        logger.info("Starting chat download...")
+        start_time = time.time()
+        
+        if args.method == "cursor":
+            comments = await retriever._download_chat_by_cursor(video_id, duration_seconds, progress_callback)
+            success = len(comments) > 0
+            if success:
+                # Save to file
+                output_file = os.path.join(args.output, f"{video_id}_chat_cursor.json")
+                with open(output_file, 'w', encoding='utf-8') as f:
+                    json.dump({
+                        "video_id": video_id,
+                        "title": video_info.get('title'),
+                        "comments": comments
+                    }, f, indent=2)
+                logger.info(f"Saved {len(comments)} comments to {output_file}")
+                
+        elif args.method == "segments":
+            comments = await retriever._download_chat_by_segments(video_id, duration_seconds, progress_callback)
+            success = len(comments) > 0
+            if success:
+                # Save to file
+                output_file = os.path.join(args.output, f"{video_id}_chat_segments.json")
+                with open(output_file, 'w', encoding='utf-8') as f:
+                    json.dump({
+                        "video_id": video_id,
+                        "title": video_info.get('title'),
+                        "comments": comments
+                    }, f, indent=2)
+                logger.info(f"Saved {len(comments)} comments to {output_file}")
+                
+        elif args.method == "sampling":
+            comments = await retriever._download_chat_by_sampling(video_id, duration_seconds, progress_callback)
+            success = len(comments) > 0
+            if success:
+                # Save to file
+                output_file = os.path.join(args.output, f"{video_id}_chat_sampling.json")
+                with open(output_file, 'w', encoding='utf-8') as f:
+                    json.dump({
+                        "video_id": video_id,
+                        "title": video_info.get('title'),
+                        "comments": comments
+                    }, f, indent=2)
+                logger.info(f"Saved {len(comments)} comments to {output_file}")
+                
+        else:  # all - use the normal method
+            success = await retriever.download_chat(video_id, args.output, progress_callback)
+        
+        elapsed = time.time() - start_time
+        
         if success:
-            # Save to file
-            output_file = os.path.join(args.output, f"{video_id}_chat_cursor.json")
-            with open(output_file, 'w', encoding='utf-8') as f:
-                json.dump({
-                    "video_id": video_id,
-                    "title": video_info.get('title'),
-                    "comments": comments
-                }, f, indent=2)
-            logger.info(f"Saved {len(comments)} comments to {output_file}")
-            
-    elif args.method == "segments":
-        comments = retriever._download_chat_by_segments(video_id, duration_seconds, progress_callback)
-        success = len(comments) > 0
-        if success:
-            # Save to file
-            output_file = os.path.join(args.output, f"{video_id}_chat_segments.json")
-            with open(output_file, 'w', encoding='utf-8') as f:
-                json.dump({
-                    "video_id": video_id,
-                    "title": video_info.get('title'),
-                    "comments": comments
-                }, f, indent=2)
-            logger.info(f"Saved {len(comments)} comments to {output_file}")
-            
-    elif args.method == "sampling":
-        comments = retriever._download_chat_by_sampling(video_id, duration_seconds, progress_callback)
-        success = len(comments) > 0
-        if success:
-            # Save to file
-            output_file = os.path.join(args.output, f"{video_id}_chat_sampling.json")
-            with open(output_file, 'w', encoding='utf-8') as f:
-                json.dump({
-                    "video_id": video_id,
-                    "title": video_info.get('title'),
-                    "comments": comments
-                }, f, indent=2)
-            logger.info(f"Saved {len(comments)} comments to {output_file}")
-            
-    else:  # all - use the normal method
-        success = retriever.download_chat(video_id, args.output, progress_callback)
-    
-    elapsed = time.time() - start_time
-    
-    if success:
-        logger.info(f"Chat download completed in {elapsed:.2f} seconds")
-        return 0
-    else:
-        logger.error(f"Chat download failed after {elapsed:.2f} seconds")
-        return 1
+            logger.info(f"Chat download completed in {elapsed:.2f} seconds")
+            return 0
+        else:
+            logger.error(f"Chat download failed after {elapsed:.2f} seconds")
+            return 1
+    finally:
+        await retriever.close()
+
+def main():
+    """Run the async main function"""
+    return asyncio.run(async_main())
 
 if __name__ == "__main__":
     sys.exit(main())

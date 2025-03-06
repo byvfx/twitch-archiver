@@ -2,14 +2,14 @@
 UI Integration for Twitch Chat Downloader
 """
 
-import tkinter as tk
 import customtkinter as ctk
 import os
 import json
 import logging
-import threading
 import requests
-from typing import Dict, Optional
+from typing import Dict
+import webbrowser
+import subprocess
 
 logger = logging.getLogger("TwitchChatUI")
 
@@ -27,6 +27,7 @@ class TwitchChatUI:
         self.client_id_var = ctk.StringVar()
         self.client_secret_var = ctk.StringVar()
         self.is_configured = False
+        self.api_status_label = None
         
         # Load saved credentials if available
         self._load_credentials()
@@ -65,30 +66,53 @@ class TwitchChatUI:
         # Create a toplevel window for API settings
         self.api_window = ctk.CTkToplevel(self.master)
         self.api_window.title("Twitch API Settings")
-        self.api_window.geometry("550x300")
+        self.api_window.geometry("600x380")  # Made window taller to accommodate status text and file location
         self.api_window.transient(self.master)
         self.api_window.grab_set()
         
         # Create the content frame
         frame = ctk.CTkFrame(self.api_window)
-        frame.pack(fill="both", expand=True, padx=10, pady=10)
+        frame.pack(fill="both", expand=True, padx=1, pady=1)
         
-        # Add instructions
-        instructions = (
-            "To download chat logs, you need Twitch API credentials.\n"
-            "1. Go to https://dev.twitch.tv/console/apps\n"
+        # Add first part of instructions
+        ctk.CTkLabel(
+            frame, 
+            text="To download chat logs, you need Twitch API credentials.",
+            justify="left",
+            wraplength=480
+        ).pack(pady=(10, 2))
+        
+        # First instruction with link
+        instructions_frame = ctk.CTkFrame(frame, fg_color="transparent")
+        instructions_frame.pack(fill="x", pady=(0, 20))
+
+        # Create hyperlink as a button
+        link = "https://dev.twitch.tv/console/apps"
+        link_button = ctk.CTkButton(
+            instructions_frame,
+            text="1. Go to Twitch Developer Console",
+            fg_color="#9147FF",  # Twitch purple
+            hover_color="#772CE8",
+            command=lambda: self._open_link(link),
+            width=350
+        )
+        link_button.pack(fill="x", padx=10, pady=5)
+
+        # Continue with the rest of the instructions
+        instructions2 = (
             "2. Register a new application\n"
             "3. Enter any name and set OAuth Redirect URL to http://localhost\n"
-            "4. Get the Client ID and generate a Client Secret\n"
-            "5. Enter them below"
+            "4. Select Confidential for the Client Type\n"
+            "5. Get the Client ID and generate a Client Secret\n"
+            "6. Enter them below"
         )
         
         ctk.CTkLabel(
-            frame, 
-            text=instructions,
+            instructions_frame, 
+            text=instructions2,
             justify="left",
             wraplength=480
-        ).pack(pady=(10, 20))
+        ).pack(anchor="w", padx=10, pady=2)
         
         # Client ID
         id_frame = ctk.CTkFrame(frame, fg_color="transparent")
@@ -107,6 +131,40 @@ class TwitchChatUI:
         
         secret_entry = ctk.CTkEntry(secret_frame, textvariable=self.client_secret_var, width=350, show="•")
         secret_entry.pack(side="left", padx=5, fill="x", expand=True)
+        
+        # File location info
+        file_location_frame = ctk.CTkFrame(frame, fg_color="transparent")
+        file_location_frame.pack(fill="x", pady=5)
+        
+        config_file = os.path.join(os.path.expanduser("~"), ".twitch_archiver", "config.json")
+        
+        ctk.CTkLabel(
+            file_location_frame, 
+            text="Credentials File:", 
+            width=100
+        ).pack(side="left", padx=5)
+        
+        show_location_btn = ctk.CTkButton(
+            file_location_frame,
+            text="Show Location",
+            width=100,
+            height=28,
+            fg_color="#555555",
+            hover_color="#777777",
+            command=lambda: self._update_api_status(f"Credentials stored at: {config_file}", "#4CAF50")
+        )
+        show_location_btn.pack(side="left", padx=5)
+        
+        open_folder_btn = ctk.CTkButton(
+            file_location_frame,
+            text="Open Folder",
+            width=100,
+            height=28,
+            fg_color="#555555",
+            hover_color="#777777",
+            command=lambda: self._open_config_folder()
+        )
+        open_folder_btn.pack(side="left", padx=5)
         
         # Buttons
         button_frame = ctk.CTkFrame(frame, fg_color="transparent")
@@ -127,6 +185,33 @@ class TwitchChatUI:
             hover_color="#777777",
             command=self.api_window.destroy
         ).pack(side="right", padx=5)
+        
+        # Add status label at bottom
+        status_frame = ctk.CTkFrame(frame, fg_color="transparent", height=30)
+        status_frame.pack(fill="x", side="bottom", padx=10, pady=5)
+        
+        self.api_status_label = ctk.CTkLabel(
+            status_frame, 
+            text="Enter your Twitch API credentials to enable chat downloading",
+            text_color="#999999",
+            height=20,
+            font=("", 12)
+        )
+        self.api_status_label.pack(fill="x")
+        
+        # Show status of current configuration
+        if self.is_configured:
+            self._update_api_status("API credentials are configured and ready to use", "#4CAF50")
+        
+    def _update_api_status(self, message, color="#999999"):
+        """Update the status text in the API settings window"""
+        if self.api_status_label:
+            self.api_status_label.configure(text=message, text_color=color)
+            self.api_status_label.update()
+        
+    def _open_link(self, url):
+        """Open a link in the default web browser"""
+        webbrowser.open_new(url)
     
     def _save_credentials(self):
         """Save the API credentials"""
@@ -139,6 +224,8 @@ class TwitchChatUI:
         
         # Verify the credentials by attempting to get an access token
         try:
+            self._update_api_status("Verifying credentials with Twitch API...", "#FFA500")
+            
             auth_url = "https://id.twitch.tv/oauth2/token"
             params = {
                 "client_id": client_id,
@@ -150,13 +237,16 @@ class TwitchChatUI:
             response = requests.post(auth_url, params=params)
             
             if response.status_code != 200:
+                self._update_api_status("Invalid credentials. Please check your Client ID and Secret.", "#FF0000")
                 self._show_error("Invalid credentials. Please check your Client ID and Secret.")
                 logger.error(f"API credential verification failed: {response.status_code}")
                 return
                 
             logger.info("API credentials verified successfully")
+            self._update_api_status("Credentials verified successfully! Saving...", "#4CAF50")
                 
         except Exception as e:
+            self._update_api_status(f"Error: {str(e)}", "#FF0000")
             self._show_error(f"Error verifying credentials: {str(e)}")
             return
         
@@ -175,9 +265,11 @@ class TwitchChatUI:
                 json.dump(config, f)
             
             self.is_configured = True
-            self.api_window.destroy()
+            self._update_api_status("Credentials saved successfully!", "#4CAF50")
+            self.master.after(1000, self.api_window.destroy)  # Close after 1 second
             self.master.update_status("API credentials verified and saved successfully.")
         except Exception as e:
+            self._update_api_status(f"Error saving: {str(e)}", "#FF0000")
             self._show_error(f"Error saving credentials: {str(e)}")
     
     def _load_credentials(self):
@@ -247,3 +339,25 @@ class TwitchChatUI:
             logger.warning("Attempting to get empty API credentials")
             
         return credentials
+
+    def _open_config_folder(self):
+        """Open the folder containing the config file"""
+        config_dir = os.path.join(os.path.expanduser("~"), ".twitch_archiver")
+        
+        # Create directory if it doesn't exist
+        os.makedirs(config_dir, exist_ok=True)
+        
+        # Open the directory using the appropriate method for the OS
+        try:
+            if os.name == 'nt':  # Windows
+                os.startfile(config_dir)
+            elif os.name == 'posix':  # macOS or Linux
+                if 'darwin' in os.sys.platform:  # macOS
+                    subprocess.Popen(['open', config_dir])
+                else:  # Linux
+                    subprocess.Popen(['xdg-open', config_dir])
+                    
+            self._update_api_status(f"Opened folder: {config_dir}", "#4CAF50")
+        except Exception as e:
+            logger.error(f"Error opening config folder: {e}")
+            self._update_api_status(f"Error opening folder: {str(e)}", "#FF0000")

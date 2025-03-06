@@ -1,16 +1,17 @@
 """
-Twitch Chat Retriever Module for Twitch VOD Archiver
+Twitch Chat Retriever Module for Twitch VOD Archiver - Async Version
 """
 
 import os
 import json
 import time
 import logging
-import requests
+import asyncio
+import aiohttp
 import datetime
 import threading
 import re
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Callable, Any
 
 logger = logging.getLogger("TwitchChatRetriever")
 
@@ -29,8 +30,20 @@ class TwitchChatRetriever:
         self.token_expiry = 0
         self.base_url = "https://api.twitch.tv/helix"
         self.gql_url = "https://gql.twitch.tv/gql"
+        self._session = None
         
-    def authenticate(self) -> bool:
+    async def get_session(self) -> aiohttp.ClientSession:
+        """Get or create an aiohttp session."""
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession()
+        return self._session
+        
+    async def close(self):
+        """Close the aiohttp session."""
+        if self._session and not self._session.closed:
+            await self._session.close()
+        
+    async def authenticate(self) -> bool:
         """
         Authenticate with Twitch API and get access token
         
@@ -49,23 +62,24 @@ class TwitchChatRetriever:
                 "grant_type": "client_credentials"
             }
             
-            response = requests.post(auth_url, params=params)
-            if response.status_code == 200:
-                data = response.json()
-                self.access_token = data["access_token"]
-                # Set expiry with a small buffer before actual expiry
-                self.token_expiry = time.time() + data["expires_in"] - 100
-                logger.info("Successfully authenticated with Twitch API")
-                return True
-            else:
-                logger.error(f"Failed to authenticate: {response.status_code} - Error response received")
-                return False
+            session = await self.get_session()
+            async with session.post(auth_url, params=params) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    self.access_token = data["access_token"]
+                    # Set expiry with a small buffer before actual expiry
+                    self.token_expiry = time.time() + data["expires_in"] - 100
+                    logger.info("Successfully authenticated with Twitch API")
+                    return True
+                else:
+                    logger.error(f"Failed to authenticate: {response.status} - Error response received")
+                    return False
                 
         except Exception as e:
             logger.error(f"Authentication error: {str(e)}", exc_info=True)
             return False
     
-    def get_video_info(self, video_id: str) -> Optional[Dict]:
+    async def get_video_info(self, video_id: str) -> Optional[Dict]:
         """
         Get video information from Twitch API
         
@@ -75,7 +89,7 @@ class TwitchChatRetriever:
         Returns:
             dict: Video information or None if not found
         """
-        if not self.authenticate():
+        if not await self.authenticate():
             return None
             
         try:
@@ -90,23 +104,25 @@ class TwitchChatRetriever:
             }
             params = {"id": video_id}
             
-            response = requests.get(url, headers=headers, params=params)
-            if response.status_code == 200:
-                data = response.json()
-                if data["data"]:
-                    return data["data"][0]
+            session = await self.get_session()
+            async with session.get(url, headers=headers, params=params) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    if data["data"]:
+                        return data["data"][0]
+                    else:
+                        logger.warning(f"Video not found: {video_id}")
+                        return None
                 else:
-                    logger.warning(f"Video not found: {video_id}")
+                    text = await response.text()
+                    logger.error(f"Failed to get video info: {response.status} - {text}")
                     return None
-            else:
-                logger.error(f"Failed to get video info: {response.status_code} - {response.text}")
-                return None
                 
         except Exception as e:
             logger.error(f"Error getting video info: {str(e)}", exc_info=True)
             return None
     
-    def download_chat(self, video_id: str, output_path: str, progress_callback=None) -> bool:
+    async def download_chat(self, video_id: str, output_path: str, progress_callback=None) -> bool:
         """
         Download chat for a specific VOD using Twitch's GQL API
         
@@ -120,7 +136,7 @@ class TwitchChatRetriever:
         """
         logger.info(f"Starting chat download for video ID: {video_id}")
         
-        if not self.authenticate():
+        if not await self.authenticate():
             logger.error("Authentication failed - cannot download chat")
             return False
             
@@ -132,7 +148,7 @@ class TwitchChatRetriever:
             logger.info(f"Using cleaned video ID: {video_id}")
                 
             # Get video information to get duration
-            video_info = self.get_video_info(video_id)
+            video_info = await self.get_video_info(video_id)
             if not video_info:
                 logger.error(f"Could not get video info for video ID: {video_id}")
                 return False
@@ -154,16 +170,16 @@ class TwitchChatRetriever:
             logger.info(f"Downloading chat for video {video_id} (Duration: {video_info['duration']})")
             logger.info(f"Chat will be saved to: {output_file}")
             
-            # Try using the direct chat download approach first
-            all_comments = self._download_chat_by_segments(video_id, total_duration_seconds, progress_callback)
+            # Try using the segment-based chat download approach first with parallel requests
+            all_comments = await self._download_chat_by_segments(video_id, total_duration_seconds, progress_callback)
             
             if not all_comments:
                 logger.warning("Segment method failed or returned no comments, trying cursor method...")
-                all_comments = self._download_chat_by_cursor(video_id, total_duration_seconds, progress_callback)
+                all_comments = await self._download_chat_by_cursor(video_id, total_duration_seconds, progress_callback)
                 
             if not all_comments:
                 logger.warning("Both methods failed, falling back to offset sampling...")
-                all_comments = self._download_chat_by_sampling(video_id, total_duration_seconds, progress_callback)
+                all_comments = await self._download_chat_by_sampling(video_id, total_duration_seconds, progress_callback)
                 
             logger.info(f"Total comments retrieved: {len(all_comments)}")
             
@@ -188,8 +204,11 @@ class TwitchChatRetriever:
         except Exception as e:
             logger.error(f"Error downloading chat: {str(e)}", exc_info=True)
             return False
+        finally:
+            # Ensure session is closed
+            await self.close()
 
-    def _download_chat_by_cursor(self, video_id, total_duration_seconds, progress_callback=None):
+    async def _download_chat_by_cursor(self, video_id, total_duration_seconds, progress_callback=None):
         """Download chat using cursor-based pagination"""
         logger.info("Using cursor-based chat download method...")
         
@@ -211,6 +230,9 @@ class TwitchChatRetriever:
         # Set a reasonable limit for iterations to prevent infinite loops
         max_iterations = 200
         iterations = 0
+        
+        # Get aiohttp session
+        session = await self.get_session()
         
         while has_next_page and iterations < max_iterations:
             iterations += 1
@@ -239,86 +261,86 @@ class TwitchChatRetriever:
                 logger.debug("Starting from contentOffsetSeconds: 0")
                 
             try:
-                response = requests.post(self.gql_url, json=gql_query, headers=headers)
-                
-                if response.status_code != 200:
-                    logger.error(f"Failed to get comments: {response.status_code} - {response.text}")
-                    break
-                    
-                data = response.json()
-                
-                if "errors" in data:
-                    logger.error(f"GQL errors: {data['errors']}")
-                    break
-                    
-                comments_data = data.get("data", {}).get("video", {}).get("comments", {})
-                edges = comments_data.get("edges", [])
-                logger.debug(f"Retrieved {len(edges)} comments in iteration {iterations}")
-                
-                # Check if we got any new edges
-                if not edges:
-                    logger.warning(f"No comments found in this batch")
-                    break
-                    
-                # Process edges
-                new_comments = 0
-                max_offset = 0
-                
-                for edge in edges:
-                    # Generate a unique ID for this edge to avoid duplication
-                    edge_id = f"{edge.get('cursor', '')}"
-                    
-                    # Skip if we've already processed this edge
-                    if edge_id in processed_edges:
-                        continue
+                async with session.post(self.gql_url, json=gql_query, headers=headers) as response:
+                    if response.status != 200:
+                        text = await response.text()
+                        logger.error(f"Failed to get comments: {response.status} - {text}")
+                        break
                         
-                    processed_edges.add(edge_id)
+                    data = await response.json()
                     
-                    node = edge.get("node", {})
-                    offset_seconds = node.get("contentOffsetSeconds", 0)
-                    max_offset = max(max_offset, offset_seconds)
+                    if "errors" in data:
+                        logger.error(f"GQL errors: {data['errors']}")
+                        break
+                        
+                    comments_data = data.get("data", {}).get("video", {}).get("comments", {})
+                    edges = comments_data.get("edges", [])
+                    logger.debug(f"Retrieved {len(edges)} comments in iteration {iterations}")
                     
-                    # Create a structured comment object
-                    comment = {
-                        "content_offset_seconds": offset_seconds,
-                        "commenter": {
-                            "display_name": node.get("commenter", {}).get("displayName", "Unknown"),
-                            "id": node.get("commenter", {}).get("id", "")
-                        },
-                        "message": {
-                            "body": self._extract_message_text(node.get("message", {})),
-                        },
-                        "timestamp": node.get("createdAt", "")
-                    }
+                    # Check if we got any new edges
+                    if not edges:
+                        logger.warning(f"No comments found in this batch")
+                        break
+                        
+                    # Process edges
+                    new_comments = 0
+                    max_offset = 0
                     
-                    all_comments.append(comment)
-                    new_comments += 1
-                
-                # Check if we got any new comments
-                if new_comments == 0:
-                    logger.warning("No new comments found, breaking loop")
-                    break
+                    for edge in edges:
+                        # Generate a unique ID for this edge to avoid duplication
+                        edge_id = f"{edge.get('cursor', '')}"
+                        
+                        # Skip if we've already processed this edge
+                        if edge_id in processed_edges:
+                            continue
+                            
+                        processed_edges.add(edge_id)
+                        
+                        node = edge.get("node", {})
+                        offset_seconds = node.get("contentOffsetSeconds", 0)
+                        max_offset = max(max_offset, offset_seconds)
+                        
+                        # Create a structured comment object
+                        comment = {
+                            "content_offset_seconds": offset_seconds,
+                            "commenter": {
+                                "display_name": node.get("commenter", {}).get("displayName", "Unknown"),
+                                "id": node.get("commenter", {}).get("id", "")
+                            },
+                            "message": {
+                                "body": self._extract_message_text(node.get("message", {})),
+                            },
+                            "timestamp": node.get("createdAt", "")
+                        }
+                        
+                        all_comments.append(comment)
+                        new_comments += 1
                     
-                # Check for pagination
-                page_info = comments_data.get("pageInfo", {})
-                has_next_page = page_info.get("hasNextPage", False)
-                cursor = page_info.get("endCursor", None)
-                
-                # If hasNextPage is true but endCursor is None, something's wrong
-                if has_next_page and not cursor:
-                    logger.warning("hasNextPage is true but no cursor provided, breaking loop")
-                    break
+                    # Check if we got any new comments
+                    if new_comments == 0:
+                        logger.warning("No new comments found, breaking loop")
+                        break
+                        
+                    # Check for pagination
+                    page_info = comments_data.get("pageInfo", {})
+                    has_next_page = page_info.get("hasNextPage", False)
+                    cursor = page_info.get("endCursor", None)
                     
-                # Update progress
-                if progress_callback and total_duration_seconds > 0:
-                    progress = min(0.95, max_offset / total_duration_seconds)  # Cap at 95% to account for final processing
-                    progress_callback(progress)
+                    # If hasNextPage is true but endCursor is None, something's wrong
+                    if has_next_page and not cursor:
+                        logger.warning("hasNextPage is true but no cursor provided, breaking loop")
+                        break
+                        
+                    # Update progress
+                    if progress_callback and total_duration_seconds > 0:
+                        progress = min(0.95, max_offset / total_duration_seconds)  # Cap at 95% to account for final processing
+                        progress_callback(progress)
+                        
+                    logger.debug(f"Progress: {max_offset}/{total_duration_seconds}s = {max_offset/total_duration_seconds:.1%}")
                     
-                logger.debug(f"Progress: {max_offset}/{total_duration_seconds}s = {max_offset/total_duration_seconds:.1%}")
-                
-                # Add a small delay to avoid rate limiting
-                time.sleep(0.5)
-                
+                    # Add a small delay to avoid rate limiting
+                    await asyncio.sleep(0.5)
+                    
             except Exception as e:
                 logger.error(f"Error during comment fetch: {str(e)}", exc_info=True)
                 break
@@ -327,8 +349,8 @@ class TwitchChatRetriever:
         all_comments.sort(key=lambda c: c["content_offset_seconds"])
         return all_comments
 
-    def _download_chat_by_segments(self, video_id, total_duration_seconds, progress_callback=None):
-        """Download chat by breaking video into segments"""
+    async def _download_chat_by_segments(self, video_id, total_duration_seconds, progress_callback=None):
+        """Download chat by breaking video into segments with parallel requests"""
         logger.info("Using segment-based chat download method...")
         
         all_comments = []
@@ -359,10 +381,14 @@ class TwitchChatRetriever:
             "Content-Type": "application/json"
         }
         
-        # Process each segment
-        for i in range(num_segments):
-            offset_seconds = i * segment_size
-            
+        # Get aiohttp session
+        session = await self.get_session()
+        
+        # Create a list to store segment tasks
+        segment_tasks = []
+        
+        # Function to process a segment
+        async def process_segment(segment_id, offset_seconds):
             # GraphQL query for comments at this offset
             gql_query = {
                 "operationName": "VideoCommentsByOffsetOrCursor",
@@ -378,73 +404,97 @@ class TwitchChatRetriever:
                 }
             }
             
-            logger.debug(f"Fetching segment {i+1}/{num_segments} at offset {offset_seconds:.1f}s")
+            logger.debug(f"Fetching segment {segment_id+1}/{num_segments} at offset {offset_seconds:.1f}s")
             
             try:
-                response = requests.post(self.gql_url, json=gql_query, headers=headers)
-                
-                if response.status_code != 200:
-                    logger.warning(f"Failed to get comments for segment {i+1}: {response.status_code}")
-                    continue
+                async with session.post(self.gql_url, json=gql_query, headers=headers) as response:
+                    if response.status != 200:
+                        logger.warning(f"Failed to get comments for segment {segment_id+1}: {response.status}")
+                        return []
+                        
+                    data = await response.json()
                     
-                data = response.json()
-                
-                if "errors" in data:
-                    logger.warning(f"GQL errors for segment {i+1}: {data['errors']}")
-                    continue
+                    if "errors" in data:
+                        logger.warning(f"GQL errors for segment {segment_id+1}: {data['errors']}")
+                        return []
+                        
+                    video_comments = data.get("data", {}).get("video", {}).get("comments", {})
+                    edges = video_comments.get("edges", [])
                     
-                video_comments = data.get("data", {}).get("video", {}).get("comments", {})
-                edges = video_comments.get("edges", [])
-                
-                logger.debug(f"Segment {i+1}: retrieved {len(edges)} comments")
-                
-                for edge in edges:
-                    node = edge.get("node", {})
+                    logger.debug(f"Segment {segment_id+1}: retrieved {len(edges)} comments")
                     
-                    # Create a simple hash to identify this comment
-                    offset = node.get("contentOffsetSeconds", 0)
-                    commenter_id = node.get("commenter", {}).get("id", "")
-                    message_body = self._extract_message_text(node.get("message", {}))
-                    comment_hash = f"{offset}-{commenter_id}-{message_body}"
+                    segment_comments = []
                     
+                    for edge in edges:
+                        node = edge.get("node", {})
+                        
+                        # Create a structured comment
+                        offset = node.get("contentOffsetSeconds", 0)
+                        commenter_id = node.get("commenter", {}).get("id", "")
+                        message_body = self._extract_message_text(node.get("message", {}))
+                        comment_hash = f"{offset}-{commenter_id}-{message_body}"
+                        
+                        segment_comments.append({
+                            "hash": comment_hash,
+                            "comment": {
+                                "content_offset_seconds": offset,
+                                "commenter": {
+                                    "display_name": node.get("commenter", {}).get("displayName", "Unknown"),
+                                    "id": commenter_id
+                                },
+                                "message": {
+                                    "body": message_body
+                                },
+                                "timestamp": node.get("createdAt", "")
+                            }
+                        })
+                    
+                    return segment_comments
+                    
+            except Exception as e:
+                logger.warning(f"Error processing segment {segment_id+1}: {str(e)}")
+                return []
+        
+        # Create tasks for each segment (with concurrency limit)
+        max_concurrent = 5  # Don't overdo it to avoid rate limiting
+        
+        # Create batches of segments
+        for batch_start in range(0, num_segments, max_concurrent):
+            batch_end = min(batch_start + max_concurrent, num_segments)
+            batch_tasks = []
+            
+            for i in range(batch_start, batch_end):
+                offset_seconds = i * segment_size
+                task = asyncio.create_task(process_segment(i, offset_seconds))
+                batch_tasks.append(task)
+                
+            # Wait for all tasks in this batch to complete
+            batch_results = await asyncio.gather(*batch_tasks)
+            
+            # Process the results from this batch
+            for i, segment_comments in enumerate(batch_results):
+                for comment_data in segment_comments:
                     # Skip duplicates
-                    if comment_hash in processed_comments:
+                    if comment_data["hash"] in processed_comments:
                         continue
                         
-                    processed_comments.add(comment_hash)
-                    
-                    # Create structured comment
-                    comment = {
-                        "content_offset_seconds": offset,
-                        "commenter": {
-                            "display_name": node.get("commenter", {}).get("displayName", "Unknown"),
-                            "id": commenter_id
-                        },
-                        "message": {
-                            "body": message_body
-                        },
-                        "timestamp": node.get("createdAt", "")
-                    }
-                    
-                    all_comments.append(comment)
+                    processed_comments.add(comment_data["hash"])
+                    all_comments.append(comment_data["comment"])
                 
-                # Update progress
+                # Update progress after each batch
                 if progress_callback:
-                    progress = min(0.95, (i + 1) / num_segments)  # Cap at 95%
+                    progress = min(0.95, (batch_start + i + 1) / num_segments)
                     progress_callback(progress)
-                
-                # Be nice to the API
-                time.sleep(0.5)
-                
-            except Exception as e:
-                logger.warning(f"Error processing segment {i+1}: {str(e)}")
+            
+            # Add a small delay between batches to avoid rate limiting
+            await asyncio.sleep(1)
         
         # Sort by timestamp and return
         all_comments.sort(key=lambda c: c["content_offset_seconds"])
         return all_comments
 
-    def _download_chat_by_sampling(self, video_id, total_duration_seconds, progress_callback=None):
-        """Download chat by sampling points throughout the video"""
+    async def _download_chat_by_sampling(self, video_id, total_duration_seconds, progress_callback=None):
+        """Download chat by sampling points throughout the video with parallel requests"""
         logger.info("Using sampling-based chat download method...")
         
         all_comments = []
@@ -479,11 +529,13 @@ class TwitchChatRetriever:
             "Content-Type": "application/json"
         }
         
-        # Process each sample point
-        for i, offset in enumerate(sample_points):
-            # Skip if we've already processed this offset
+        # Get aiohttp session
+        session = await self.get_session()
+        
+        # Process sample points with concurrency
+        async def process_sample_point(sample_idx, offset):
             if offset in processed_offsets:
-                continue
+                return []
                 
             processed_offsets.add(offset)
             
@@ -501,42 +553,65 @@ class TwitchChatRetriever:
                 }
             }
             
-            logger.debug(f"Sampling point {i+1}/{len(sample_points)} at {offset}s")
+            logger.debug(f"Sampling point {sample_idx+1}/{len(sample_points)} at {offset}s")
             
             try:
-                response = requests.post(self.gql_url, json=gql_query, headers=headers)
-                
-                if response.status_code != 200:
-                    logger.warning(f"Failed at sample {i+1}: {response.status_code}")
-                    continue
+                async with session.post(self.gql_url, json=gql_query, headers=headers) as response:
+                    if response.status != 200:
+                        logger.warning(f"Failed at sample {sample_idx+1}: {response.status}")
+                        return []
+                        
+                    data = await response.json()
                     
-                data = response.json()
-                
-                if "errors" in data:
-                    logger.warning(f"GQL errors at sample {i+1}: {data['errors']}")
-                    continue
+                    if "errors" in data:
+                        logger.warning(f"GQL errors at sample {sample_idx+1}: {data['errors']}")
+                        return []
+                        
+                    video_comments = data.get("data", {}).get("video", {}).get("comments", {})
+                    edges = video_comments.get("edges", [])
                     
-                video_comments = data.get("data", {}).get("video", {}).get("comments", {})
-                edges = video_comments.get("edges", [])
-                
-                logger.debug(f"Sample {i+1}: retrieved {len(edges)} comments at {offset}s")
-                
-                # Process comments from this sample
-                for edge in edges:
-                    node = edge.get("node", {})
+                    logger.debug(f"Sample {sample_idx+1}: retrieved {len(edges)} comments at {offset}s")
                     
-                    comment = {
-                        "content_offset_seconds": node.get("contentOffsetSeconds", 0),
-                        "commenter": {
-                            "display_name": node.get("commenter", {}).get("displayName", "Unknown"),
-                            "id": node.get("commenter", {}).get("id", "")
-                        },
-                        "message": {
-                            "body": self._extract_message_text(node.get("message", {}))
-                        },
-                        "timestamp": node.get("createdAt", "")
-                    }
+                    # Process comments from this sample
+                    sample_comments = []
+                    for edge in edges:
+                        node = edge.get("node", {})
+                        
+                        sample_comments.append({
+                            "content_offset_seconds": node.get("contentOffsetSeconds", 0),
+                            "commenter": {
+                                "display_name": node.get("commenter", {}).get("displayName", "Unknown"),
+                                "id": node.get("commenter", {}).get("id", "")
+                            },
+                            "message": {
+                                "body": self._extract_message_text(node.get("message", {}))
+                            },
+                            "timestamp": node.get("createdAt", "")
+                        })
+                        
+                    return sample_comments
                     
+            except Exception as e:
+                logger.warning(f"Error at sample point {offset}s: {str(e)}")
+                return []
+        
+        # Process sample points in batches with concurrency
+        max_concurrent = 5
+        
+        for batch_start in range(0, len(sample_points), max_concurrent):
+            batch_end = min(batch_start + max_concurrent, len(sample_points))
+            batch_tasks = []
+            
+            for i in range(batch_start, batch_end):
+                task = asyncio.create_task(process_sample_point(i, sample_points[i]))
+                batch_tasks.append(task)
+                
+            # Wait for all tasks in this batch to complete
+            batch_results = await asyncio.gather(*batch_tasks)
+            
+            # Process the results from this batch
+            for i, sample_comments in enumerate(batch_results):
+                for comment in sample_comments:
                     # Check for duplicates
                     is_duplicate = False
                     for existing in all_comments:
@@ -549,16 +624,13 @@ class TwitchChatRetriever:
                     if not is_duplicate:
                         all_comments.append(comment)
                 
-                # Update progress
+                # Update progress after each batch
                 if progress_callback:
-                    progress = min(0.95, (i + 1) / len(sample_points))
+                    progress = min(0.95, (batch_start + i + 1) / len(sample_points))
                     progress_callback(progress)
-                    
-                # Be nice to the API
-                time.sleep(0.5)
-                
-            except Exception as e:
-                logger.warning(f"Error at sample point {offset}s: {str(e)}")
+            
+            # Add a small delay between batches to avoid rate limiting
+            await asyncio.sleep(1)
         
         # Sort by timestamp
         all_comments.sort(key=lambda c: c["content_offset_seconds"])
@@ -633,6 +705,43 @@ class TwitchChatRetriever:
         hours, remainder = divmod(int(seconds), 3600)
         minutes, seconds = divmod(remainder, 60)
         return f"{hours:02}:{minutes:02}:{seconds:02}"
+    
+    # Synchronous compatibility methods for backward compatibility
+    def authenticate_sync(self) -> bool:
+        """Synchronous version of authenticate for backward compatibility."""
+        return asyncio.run(self.authenticate())
+    
+    def get_video_info_sync(self, video_id: str) -> Optional[Dict]:
+        """Synchronous version of get_video_info for backward compatibility."""
+        return asyncio.run(self.get_video_info(video_id))
+    
+    def download_chat_sync(self, video_id: str, output_path: str, progress_callback=None) -> bool:
+        """Synchronous version of download_chat for backward compatibility."""
+        return asyncio.run(self.download_chat(video_id, output_path, progress_callback))
+
+# For backward compatibility, keep this function
+def extract_video_id(url: str) -> Optional[str]:
+    """
+    Extract video ID from Twitch URL
+    
+    Args:
+        url: Twitch video URL
+        
+    Returns:
+        str: Video ID or None if not found
+    """
+    if not url:
+        return None
+        
+    if "twitch.tv/videos/" in url:
+        # Extract the numeric part after /videos/
+        match = re.search(r'twitch\.tv/videos/(\d+)', url)
+        if match:
+            logger.info(f"Extracted video ID {match.group(1)} from URL: {url}")
+            return match.group(1)
+    
+    logger.warning(f"Could not extract video ID from URL: {url}")
+    return None
 
 def extract_video_id(url: str) -> Optional[str]:
     """
