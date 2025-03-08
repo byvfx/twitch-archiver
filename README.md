@@ -72,12 +72,12 @@ python main.py
 ```
 
 1. Enter a Twitch channel name
-1. Click "Fetch VODs" to list available videos
-1. Select the VODs you want to download
-1. Choose download location (defaults to Downloads folder)
-1. Click "Download Selected" to start downloading
-1. Optionally, click "Pause Download" to pause the download, and click "Resume Download" to resume the download
-2. API settings button will open a new window with instructions on how to get the API key
+2. Click "Fetch VODs" to list available videos
+3. Select the VODs you want to download
+4. Choose download location (defaults to Downloads folder)
+5. Click "Download Selected" to start downloading
+6. Optionally, click "Pause Download" to pause the download, and click "Resume Download" to resume the download
+7. API settings button will open a new window with instructions on how to get the API key
 
 ## Controls
 
