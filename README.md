@@ -33,7 +33,31 @@ A desktop application for downloading Twitch VODs (Video on Demand) with a user-
    git clone https://github.com/byvfx/twitch-archiver.git
    ```
 
-2. Install dependencies using pip:
+2. Create a virtual environment (recommended)
+
+   ```bash
+   # Navigate to the project directory
+   cd twitch-archiver
+   
+   # Create a virtual environment
+   # Windows
+   python -m venv venv
+   
+   # macOS/Linux
+   python3 -m venv venv
+   ```
+
+3. Activate the virtual environment
+
+   ```bash
+   # Windows
+   venv\Scripts\activate
+   
+   # macOS/Linux
+   source venv/bin/activate
+   ```
+
+4. Install dependencies using pip:
 
    ```bash
    pip install -r requirements.txt
