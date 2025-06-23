@@ -6,6 +6,7 @@ import datetime
 import threading
 import os
 import logging
+from utils.logging_utils import setup_logging
 import asyncio
 
 import yt_dlp
@@ -16,15 +17,8 @@ from ytdlp_config import FETCH_OPTS, DOWNLOAD_OPTS, DEFAULT_OUTPUT_TEMPLATE
 from twitch_chat import TwitchChatRetriever, extract_video_id
 from twitch_chat_ui import TwitchChatUI
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler("twitch_archiver.log"),
-        logging.StreamHandler()
-    ]
-)
+# Configure logging using shared utility
+setup_logging(log_level=logging.INFO, log_file="twitch_archiver.log")
 logger = logging.getLogger("TwitchVODArchiver")
 chat_logger = logging.getLogger("TwitchChatRetriever")
 chat_logger.setLevel(logging.DEBUG)  # Set chat logger to DEBUG level

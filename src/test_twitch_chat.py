@@ -7,19 +7,13 @@ import sys
 import time
 import json
 import logging
+from utils.logging_utils import setup_logging
 import argparse
 import asyncio
 from twitch_chat import TwitchChatRetriever
 
 # Set up logging
-logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler("chat_download_test.log")
-    ]
-)
+setup_logging(log_level=logging.DEBUG, log_file="chat_download_test.log")
 logger = logging.getLogger("ChatTest")
 
 def load_credentials():
