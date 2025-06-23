@@ -99,7 +99,8 @@ python main.py
 ## Notes
 
 - Downloads are processed sequentially to avoid overwhelming the network ( might add the option to download multiple at once in the future)
-- The application uses the Twitch API to fetch VODs, which requires an API key
+- The application fetches VODs using `yt-dlp`; a Twitch API key is only needed
+  when downloading chat logs
 - Different filter types access different kinds of content:
   - All Videos typically contains past broadcasts (stored for 14-60 days depending on user level)
   - Highlights are permanently stored stream segments marked by the streamer
@@ -114,7 +115,7 @@ python main.py
 - The API key is only needed for downloading chat logs, and can be obtained from the Twitch Developer Dashboard, i put insructions on how to get the API key in the application itself.
 - The application saves the API key in a file called `config.json` in the user's home directory. I made a button to explore to the location or print it out in the UI.
 - Currently looking into encrypt the API key in the config file for future releases.
-- test_twitch_chat.py is a test file for the twitch API, it is not needed for the application to run. you can run it to test the API key and see if it is working. the only argument is the video ID.
+- `test_twitch_chat.py` is a helper script for testing chat downloads via the Twitch API. It is optional and accepts a video ID to verify your credentials.
 
 ## TODO
 
