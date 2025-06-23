@@ -743,25 +743,4 @@ def extract_video_id(url: str) -> Optional[str]:
     logger.warning(f"Could not extract video ID from URL: {url}")
     return None
 
-def extract_video_id(url: str) -> Optional[str]:
-    """
-    Extract video ID from Twitch URL
-    
-    Args:
-        url: Twitch video URL
-        
-    Returns:
-        str: Video ID or None if not found
-    """
-    if not url:
-        return None
-        
-    if "twitch.tv/videos/" in url:
-        # Extract the numeric part after /videos/
-        match = re.search(r'twitch\.tv/videos/(\d+)', url)
-        if match:
-            logger.info(f"Extracted video ID {match.group(1)} from URL: {url}")
-            return match.group(1)
-    
-    logger.warning(f"Could not extract video ID from URL: {url}")
-    return None
+
